@@ -1,0 +1,34 @@
+#! stdtmpl | standard
+#proc genHtml(state: TState): string =
+#  result = ""
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Nimbuild</title>
+</head>
+<body>
+  #if state.platforms.len() > 0:
+    <p>Status: ${state.platforms[0].status.status}</p>
+    <p>${state.platforms[0].status.desc}</p>
+    #if state.platforms[0].status.status >= sBuildSuccess:
+    #var filePath = makeArchivePath(state.platforms[0].platform,
+    #                               state.platforms[0].status.hash)
+    #var zipFile  = addFileExt(filePath, "zip")
+    #var bz2File  = addFileExt(filePath, "tar.bz2")
+    <p>
+      <a href="http://dom96.co.cc/nimbuild/downloads/${zipFile}">
+        Download zip
+      </a>
+    </p>
+    <p>
+      <a href="http://dom96.co.cc/nimbuild/downloads/${bz2File}">
+        Download tarball
+      </a>
+    </p>
+    #end if
+  #else:
+    <p>Status: Idle</p>
+  #end if
+</body>
+</html>
+
