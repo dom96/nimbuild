@@ -16,12 +16,11 @@ type
     connected: bool
     platform: string
 
-
 proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5001), 
           databasePort = dbPort): TState =
   result.sock = socket()
   if result.sock == InvalidSocket: OSError()
-  result.sock.bindAddr(TPort(5123))
+  result.sock.bindAddr(TPort(5123), "localhost")
   result.sock.listen()
   result.modules = @[]
   result.platforms = @[]
@@ -89,8 +88,8 @@ proc setStatus(state: var TState, p: string, status: TStatusEnum,
 
 proc parseMessage(state: var TState, m: TModule, line: string) =
   var json = parseJson(line)
-  # { "status": -1, desc: "...", platform: "...", hash: "123456" }
   if json.existsKey("status"):
+    # { "status": -1, desc: "...", platform: "...", hash: "123456" }
     assert(json.existsKey("hash"))
     var hash = json["hash"].str
     
@@ -98,13 +97,17 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     of sBuildFailure:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sBuildFailure, json["desc"].str, hash)
-      state.database.addCommit(hash, m.platform, bFail)
+      state.database.updateProperty(hash, m.platform, "buildResult", 
+                                    $int(bFail))
+      state.database.updateProperty(hash, m.platform, "failReason", 
+                                    json["desc"].str)
     of sBuildInProgress:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sBuildInProgress, json["desc"].str, hash)
     of sBuildSuccess:
       state.setStatus(m.platform, sBuildSuccess, "", hash)
-      state.database.addCommit(hash, m.platform, bSuccess)
+      state.database.updateProperty(hash, m.platform, "buildResult", 
+                                    $int(bFail))
     of sTestFailure:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sTestFailure, json["desc"].str, hash)
@@ -122,6 +125,17 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
           "testResult", $int(tSuccess))
     of sUnknown:
       assert(false)
+  elif json.existsKey("payload"):
+    # { "payload": { .. } }
+    # Send this message to the "builder" modules
+    if "builder" in state.modules:
+      for module in items(state.modules):
+        if module.name == "builder":
+          # Add commit to database
+          state.database.addCommit(json["payload"]["after"].str,
+                                   module.platform)
+          
+          module.sock.send($json & "\c\L")
   else:
     echo("[Fatal] Not implemented")
     assert(false)
@@ -143,7 +157,7 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
   # Remove disconnected modules
   var removed = 0
   for i in items(disconnect):
-    state.modules.del(i-removed)
+    state.modules.delete(i-removed)
     inc(removed)
 
 # SCGI
@@ -174,9 +188,12 @@ when isMainModule:
   var state = website.open()
   var readSocks: seq[TSocket] = @[]
   while True:
-    if state.scgi.next(200):
-      handleRequest(state)
-  
+    try:
+      if state.scgi.next(200):
+        handleRequest(state)
+    except EScgi:
+      echo("Got erroneous message")
+    
     readSocks = state.populateReadSocks()
     if select(readSocks, 10) != 0:
       if state.sock notin readSocks:
@@ -190,7 +207,7 @@ when isMainModule:
           assert client.recvLine(line)
           state.parseGreeting(client, line)
           # Reply to the module
-          client.send("{ \"status\": \"OK\" }\c\L")
+          client.send("{ \"reply\": \"OK\" }\c\L")
       else:
         # Message from a module
         state.handleModuleMsg(readSocks)

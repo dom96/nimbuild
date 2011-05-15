@@ -13,6 +13,12 @@ type
   TTestResult* = enum
     tFail, tSuccess
 
+  TCommit* = object
+    buildResult*: TBuildResult
+    testResult*: TTestResult
+    failReason*, platform*, hash*: string
+    
+
 const
   listName = "commits"
   dbPort* = TPort(6379)
@@ -29,18 +35,13 @@ proc customHSet(database: TDb, name, field, value: string) =
     else:
       echo("[Warning:REDIS] ", field, " already exists in ", name)
 
-proc addCommit*(database: TDb, commitHash, platform: string,
-               built: TBuildResult, failReason: string = "") =
+proc addCommit*(database: TDb, commitHash, platform: string) =
   var name = platform & ":" & commitHash
   if database.r.exists(name):
     if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
     else: echo("[Warning] " & name & " already exists!")
     
   discard database.r.lPush(listName, commitHash)
-  
-  database.customHSet(name, "buildResult", $int(built))
-  if failReason != "":
-    database.customHSet(name, "failReason", failReason)
 
 proc updateProperty*(database: TDb, commitHash, platform, property,
                     value: string) =
@@ -58,3 +59,9 @@ proc keepAlive*(database: var TDb) =
     echo("PING -> redis")
     assert(TRedisStatus(database.r.ping()) == "PONG")
     database.lastPing = t
+    
+
+
+
+
+
