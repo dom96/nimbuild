@@ -1,5 +1,5 @@
 # This module is used by the website.
-import redis, times
+import redis, times, strutils
 from sockets import TPort
 
 type
@@ -13,11 +13,12 @@ type
   TTestResult* = enum
     tFail, tSuccess
 
+  TPlatforms* = seq[TCommit]
+  
   TCommit* = object
     buildResult*: TBuildResult
     testResult*: TTestResult
     failReason*, platform*, hash*: string
-    
 
 const
   listName = "commits"
@@ -40,8 +41,11 @@ proc addCommit*(database: TDb, commitHash, platform: string) =
   if database.r.exists(name):
     if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
     else: echo("[Warning] " & name & " already exists!")
-    
+  
+  # Add the commit hash to the `commits` list.
   discard database.r.lPush(listName, commitHash)
+  # Add this platform to `commitHash:platforms` list.
+  discard database.r.lPush(commitHash & ":" & "platforms", platform)
 
 proc updateProperty*(database: TDb, commitHash, platform, property,
                     value: string) =
@@ -57,11 +61,45 @@ proc keepAlive*(database: var TDb) =
   var t = epochTime()
   if t - database.lastPing >= 60.0:
     echo("PING -> redis")
-    assert(TRedisStatus(database.r.ping()) == "PONG")
+    assert(database.r.ping() == "PONG")
     database.lastPing = t
     
+proc getCommits*(database: TDb,
+                 platforms: var seq[string]): seq[TPlatforms] =
+  result = @[]
+  for c in items(database.r.lrange("commits", 0, -1)):
+    var platformsRaw = database.r.lrange(c & ":platforms", 0, -1)
+    var commitPlatforms: TPlatforms = @[]
+    for p in items(platformsRaw):
+      var commit: TCommit
+      for key, value in database.r.hashIterAll(p & ":" & c):
+        case key
+        of "buildResult":
+          commit.buildResult = parseInt(value).TBuildResult
+        of "testResult":
+          commit.testResult = parseInt(value).TTestResult
+        of "failReason":
+          commit.failReason = value
+        else:
+          assert(false)
+      
+      commit.platform = p
+      commit.hash = c
+      echo(c)
+      commitPlatforms.add(commit)
+      if p notin platforms:
+        platforms.add(P)
+    result.add(commitPlatforms)
+  assert(result.len > 0)
 
-
-
+proc `[]`*(cPlatforms: TPlatforms, p: string): TCommit =
+  for c in items(cPlatforms):
+    if c.platform == p:
+      return c
+  raise newException(EInvalidValue, p & " platforms not found in commits.")
+  
+    
+    
+    
 
 

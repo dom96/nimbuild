@@ -51,9 +51,12 @@ proc parseGreeting(state: var TState, client: var TSocket, line: string) =
   module.name = json["name"].str
   module.sock = client
   module.platform = json["platform"].str
-  state.platforms.add((module.platform, initStatus()))
   echo(module.name, " connected.")
   state.modules.add(module)
+  
+  # Only add this module platform to platforms if it's a `builder`
+  if module.name == "builder":
+    state.platforms.add((module.platform, initStatus()))
 
 proc `[]`*(ps: seq[tuple[platform: string, status: TStatus]],
            platform: string): TStatus =
@@ -61,7 +64,7 @@ proc `[]`*(ps: seq[tuple[platform: string, status: TStatus]],
   for p, s in items(ps):
     if p == platform:
       return s
-  raise newException(EInvalidValue, "Platform not in platforms")
+  raise newException(EInvalidValue, platform & " is not a valid platform.")
 
 proc `[]=`*(ps: var seq[tuple[platform: string, status: TStatus]],
             platform: string, status: TStatus) =
@@ -75,6 +78,8 @@ proc `[]=`*(ps: var seq[tuple[platform: string, status: TStatus]],
 
   if index != -1:
     ps.del(index)
+  else:
+    raise newException(EInvalidValue, platform & " is not a valid platform.")
   
   ps.add((platform, status))
 
@@ -84,6 +89,7 @@ proc setStatus(state: var TState, p: string, status: TStatusEnum,
   s.status = status
   s.desc = desc
   s.hash = hash
+  echo("setStatus -- ", TStatusEnum(status), " -- ", p)
   state.platforms[p] = s
 
 proc parseMessage(state: var TState, m: TModule, line: string) =
@@ -92,7 +98,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     # { "status": -1, desc: "...", platform: "...", hash: "123456" }
     assert(json.existsKey("hash"))
     var hash = json["hash"].str
-    
+    echo(TStatusEnum(json["status"].num))
     case TStatusEnum(json["status"].num)
     of sBuildFailure:
       assert(json.existsKey("desc"))

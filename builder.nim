@@ -37,6 +37,7 @@ proc parseConfig(state: var TState, path: string) =
   if f != nil:
     var p: TCfgParser
     open(p, f, path)
+    var count = 0
     while True:
       var n = next(p)
       case n.kind
@@ -48,21 +49,30 @@ proc parseConfig(state: var TState, path: string) =
         case normalize(n.key)
         of "platform":
           state.platform = n.value
-        of "nimGitPath":
+          inc(count)
+          # TODO: Make sure there are no ':' present in platform.
+        of "nimgitpath":
           state.nimLoc = n.value
-        of "websitePath":
+          inc(count)
+        of "websitepath":
           state.websiteLoc = n.value
-        of "websiteURL":
+          inc(count)
+        of "websiteurl":
           state.websiteURL = n.value
-        of "logFilePath":
+          inc(count)
+        of "logfilepath":
           state.logLoc = n.value
-        of "archivePath":
+          inc(count)
+        of "archivepath":
           state.zipLoc = n.value
+          inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
+    if count != 6: 
+      quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
-    quit("Cannot open configuration file: " & path)
+    quit("Cannot open configuration file: " & path, quitFailure)
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: var TState, desc: string) =
@@ -338,6 +348,9 @@ proc open(configPath: string, port: TPort = TPort(5123)): TState =
     raise newException(EInvalidValue, 
                        "Hub didn't accept me. Waited 1.5 seconds.")
   
+  # Open log file
+  result.logFile = open(result.logLoc, fmAppend)
+  
   # Init status
   result.status = initStatus()
 
@@ -349,11 +362,10 @@ proc fileInModified(json: PJsonNode, file: string): bool =
 proc handleMessage(state: var TState, line: string) =
   echo("Got message from hub: ", line)
   var json = parseJson(line)
-  if json.existsKey("from"):
+  if json.existsKey("payload"):
     # This should be a message from the "github" module
-    var fromModule = json["from"].str
-    assert fromModule == "github"
-    assert json.existsKey("payload")
+    # The payload object should have a `after` string.
+    assert(json["payload"].existsKey("after"))
     state.skipCSource = not fileInModified(json["payload"], "csources.zip")
     state.progress.payload = json["payload"]
     echo("Bootstrapping!")

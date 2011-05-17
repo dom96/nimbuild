@@ -8,6 +8,7 @@
 </head>
 <body>
   #if state.platforms.len() > 0:
+    <p>Platforms: ${state.platforms.len}</p>
     <p>Status: ${state.platforms[0].status.status}</p>
     <p>${state.platforms[0].status.desc}</p>
     #if state.platforms[0].status.status >= sBuildSuccess:
@@ -29,6 +30,29 @@
   #else:
     <p>Status: Idle</p>
   #end if
+  
+  <!-- Output information from database -->
+  #var platforms: seq[string] = @[]
+  #var commits = getCommits(state.database, platforms)
+  #if platforms.len() > 0:
+    <table>
+      <tr>
+        <th>Commit</th>
+        #for p in items(platforms):
+          <th>${p}</th>
+        #end for
+      </tr>
+      #for i in items(commits):
+        <tr>
+        #for p in items(platforms):
+          <td>${i[p].hash}</td>
+        #end for
+        </tr>
+      #end for
+    </table>
+  #else: 
+    <p>No commits found</p>
+  #end if
+  
 </body>
 </html>
-
