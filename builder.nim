@@ -17,6 +17,7 @@ type
     currentProc: TCurrentProc
     p: PProcess
     payload: PJsonNode
+    commitFile: TFile
 
   TState = object
     sock: TSocket
@@ -139,7 +140,7 @@ proc testSucceeded(state: var TState) =
 
 proc startMyProcess(cmd, workDir: string, args: openarray[string]): PProcess =
   result = startProcess(cmd, workDir, args,
-                        nil, {poStdErrToStdOut})
+                        nil, {})
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -164,9 +165,14 @@ proc copyForArchive(nimLoc, dest: string) =
 
 proc beginBuild(state: var TState) =
   ## This procedure starts the process of building nimrod. All it does
-  ## is create a ``progress`` object, call ``buildProgressing()`` and 
-  ## execute the ``git pull`` command.
-
+  ## is create a ``progress`` object, call ``buildProgressing()``,
+  ## execute the ``git pull`` command and open a commit specific log file.
+  var commitHash = state.progress.payload["after"].str
+  var folderName = makeCommitPath(state.platform, commitHash)
+  dCreateDir(state.websiteLoc / "commits" / folderName)
+  var logFile    = state.websiteLoc / "commits" / folderName / "log.txt"
+  state.progress.commitFile = open(logFile, fmAppend)
+  
   state.progress.currentProc = pullProc
   state.progress.p = startMyProcess(findExe("git"), state.nimLoc, "pull")
   state.buildProgressing("Executing the git pull command.")
@@ -212,7 +218,7 @@ proc nextStage(state: var TState) =
     state.buildProgressing("Bootstrapping Nimrod in release mode")
   of bootNim, zipNim:
     var commitHash = state.progress.payload["after"].str
-    var folderName = makeArchivePath(state.platform, commitHash)
+    var folderName = makeCommitPath(state.platform, commitHash)
     var dir = state.zipLoc / folderName
     var zipFile = addFileExt(folderName, "zip")
     var bz2File = addFileExt(folderName, "tar.bz2")
@@ -239,12 +245,12 @@ proc nextStage(state: var TState) =
   of bz2Nim:
     # Copy the .zip and .tar.bz2 files
     var commitHash = state.progress.payload["after"].str
-    var fileName = makeArchivePath(state.platform, commitHash)
+    var fileName = makeCommitPath(state.platform, commitHash)
     var zip = addFileExt(fileName, "zip")
     var bz2 = addFileExt(fileName, ".tar.bz2")
-    dCreateDir(state.websiteLoc / "downloads" / state.platform)
-    dCopyFile(state.zipLoc / zip, state.websiteLoc / "downloads" / zip)
-    dCopyFile(state.zipLoc / bz2, state.websiteLoc / "downloads" / bz2)
+    #dCreateDir(state.websiteLoc / "commits" / state.platform)
+    dCopyFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+    dCopyFile(state.zipLoc / bz2, state.websiteLoc / "commits" / bz2)
     
     buildSucceeded(state)
   
@@ -263,19 +269,31 @@ proc nextStage(state: var TState) =
     
   of runTests:
     # Copy the testresults.html file.
-    var commitHash = state.progress.payload["after"].str.copy(0, 11)
-    # TODO: Make a function which creates this so that website.nim can reuse it from types.nim
-    var folderName = state.platform / "nimrod_" & commitHash
-    dCreateDir(state.websiteLoc / "downloads" / folderName)
-    setFilePermissions(state.websiteLoc / "downloads" / folderName,
+    var commitHash = state.progress.payload["after"].str
+    var folderName = makeCommitPath(state.platform, commitHash)
+    #dCreateDir(state.websiteLoc / "commits" / folderName)
+    setFilePermissions(state.websiteLoc / "commits" / folderName,
                        {fpGroupRead, fpGroupExec, fpOthersRead,
                         fpOthersExec, fpUserWrite,
                         fpUserRead, fpUserExec})
                         
     dCopyFile(state.nimLoc / "testresults.html",
-              state.websiteLoc / "downloads" / folderName / "testresults.html")
+              state.websiteLoc / "commits" / folderName / "testresults.html")
     testSucceeded(state)
     # TODO: Copy testresults.json too?
+
+proc readAll(s: PStream): string =
+  result = ""
+  while True:
+    var c = s.readChar()
+    if c == '\0': break
+    result.add(c)
+
+proc writeLogs(logFile, commitFile: TFile, s: string) =
+  logFile.write(s)
+  logFile.flushFile()
+  commitFile.write(s)
+  commitFile.flushFile()
 
 proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current
@@ -287,26 +305,39 @@ proc checkProgress(state: var TState) =
     assert p != nil
     var readP = @[p]
     if select(readP) == 1 and readP.len == 0:
-      var output = p.outputStream.readLine()
+      var output = p.outputStream.readAll()
       echo("Got output from ", state.progress.currentProc, ". Len = ", 
            output.len)
+      
       # TODO: If you get more problems with process exit not being detected by
       # peekExitCode then implement a counter of how many messages of len 0
       # have been received FOR EACH PROCESS. Using waitForExit doesn't seem to
       # work... GAH. (Gives 3 0_o)
-      state.logFile.write(output & "\n")
-      state.logFile.flushFile()
+      writeLogs(state.logFile, state.progress.commitFile, output & "\n")
     
     var exitCode = p.peekExitCode
-    echo("Got exit code: ", exitCode, " ", exitCode != -1)
+    echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
     if exitCode != -1:
       if exitCode == QuitSuccess:
+        var s = $state.progress.currentProc & " finished successfully."
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
         echo(state.progress.currentProc,
              " exited successfully. Continuing to next stage.")
         state.nextStage()
+        s = $state.progress.currentProc & " started."
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
       else:
-        var output = p.outputStream.readLine()
-        echo(output)
+        var output = p.outputStream.readAll()
+        echo("Got output (after termination) from ",
+             state.progress.currentProc, ". Len = ", 
+             output.len)
+        var s = ""
+        if output.len() > 0:
+          s.add(output)
+        s.add($state.progress.currentProc & " FAILED!")
+         
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+        
         if state.progress.currentProc <= bz2nim:
           echo(state.progress.currentProc,
                " failed. Build failed! Exit code = ", exitCode)

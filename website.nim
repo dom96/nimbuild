@@ -44,6 +44,12 @@ proc contains(modules: seq[TModule], name: string): bool =
   
   return false
 
+proc contains(platforms: seq[tuple[platform: string, status: TStatus]],
+              p: string): bool =
+  for platform, s in items(platforms):
+    if platform == p:
+      return True
+
 proc parseGreeting(state: var TState, client: var TSocket, line: string) =
   # { "name": "modulename" }
   var json = parseJson(line)
@@ -54,9 +60,11 @@ proc parseGreeting(state: var TState, client: var TSocket, line: string) =
   echo(module.name, " connected.")
   state.modules.add(module)
   
-  # Only add this module platform to platforms if it's a `builder`
+  # Only add this module platform to platforms if it's a `builder`, and
+  # if platform doesn't already exist.
   if module.name == "builder":
-    state.platforms.add((module.platform, initStatus()))
+    if module.platform notin state.platforms:
+      state.platforms.add((module.platform, initStatus()))
 
 proc `[]`*(ps: seq[tuple[platform: string, status: TStatus]],
            platform: string): TStatus =
@@ -98,7 +106,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     # { "status": -1, desc: "...", platform: "...", hash: "123456" }
     assert(json.existsKey("hash"))
     var hash = json["hash"].str
-    echo(TStatusEnum(json["status"].num))
+
     case TStatusEnum(json["status"].num)
     of sBuildFailure:
       assert(json.existsKey("desc"))
@@ -113,7 +121,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     of sBuildSuccess:
       state.setStatus(m.platform, sBuildSuccess, "", hash)
       state.database.updateProperty(hash, m.platform, "buildResult", 
-                                    $int(bFail))
+                                    $int(bSuccess))
     of sTestFailure:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sTestFailure, json["desc"].str, hash)
@@ -159,6 +167,12 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
         # Assume the module disconnected
         echo(m.name, " disconnected.")
         disconnect.add(i)
+        # Remove from platforms if this is a builder.
+        if m.name == "builder":
+          for i in 0..len(state.platforms):
+            if state.platforms[i].platform == m.platform:
+              state.platforms.delete(i)
+              break
   
   # Remove disconnected modules
   var removed = 0
@@ -166,8 +180,19 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
     state.modules.delete(i-removed)
     inc(removed)
 
-# SCGI
+# HTML Generation
+
+proc genPlatformResult(p: TCommit): string =
+  result = ""
+  if p.buildResult == bSuccess:
+    result.add("ok ")
+    if p.testResult == tSuccess:
+      result.add("ok")
+    else:
+      result.add("fail")
+  else: result.add("fail fail")
 include "index.html"
+# SCGI
 
 proc safeSend(client: TSocket, data: string) =
   try:

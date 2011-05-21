@@ -12,7 +12,7 @@
     <p>Status: ${state.platforms[0].status.status}</p>
     <p>${state.platforms[0].status.desc}</p>
     #if state.platforms[0].status.status >= sBuildSuccess:
-    #var filePath = makeArchivePath(state.platforms[0].platform,
+    #var filePath = makeCommitPath(state.platforms[0].platform,
     #                               state.platforms[0].status.hash)
     #var zipFile  = addFileExt(filePath, "zip")
     #var bz2File  = addFileExt(filePath, "tar.bz2")
@@ -46,6 +46,7 @@
         <tr>
         #for p in items(platforms):
           <td>${i[p].hash}</td>
+          <td>${genPlatformResult(i[p])}</td> <!-- TODO: Get the desc in here -->
         #end for
         </tr>
       #end for

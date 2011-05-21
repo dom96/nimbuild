@@ -35,5 +35,5 @@ proc `$`*(status: TStatusEnum): string =
   of sUnknown:
     return "unknown"
     
-proc makeArchivePath*(platform, hash: string): string =
+proc makeCommitPath*(platform, hash: string): string =
   return platform / "nimrod_" & hash.copy(0, 11) # 11 Chars.

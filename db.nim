@@ -85,7 +85,7 @@ proc getCommits*(database: TDb,
       
       commit.platform = p
       commit.hash = c
-      echo(c)
+      
       commitPlatforms.add(commit)
       if p notin platforms:
         platforms.add(P)
