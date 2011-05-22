@@ -18,8 +18,9 @@ type
   TCommit* = object
     buildResult*: TBuildResult
     testResult*: TTestResult
-    failReason*, platform*, hash*, websiteURL*, commitMsg*: string
+    failReason*, platform*, hash*, websiteURL*, commitMsg*, username*: string
     total*, passed*, skipped*, failed*: biggestInt
+    date*: TTime
 
 const
   listName = "commits"
@@ -45,7 +46,7 @@ proc updateProperty*(database: TDb, commitHash, platform, property,
   else:
     echo("[INFO:REDIS] '$1' new field added to hash" % [property])
 
-proc addCommit*(database: TDb, commitHash, platform, commitMsg: string) =
+proc addCommit*(database: TDb, commitHash, platform, commitMsg, user: string) =
   var name = platform & ":" & commitHash
   if database.r.exists(name):
     if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
@@ -55,8 +56,10 @@ proc addCommit*(database: TDb, commitHash, platform, commitMsg: string) =
   discard database.r.lPush(listName, commitHash)
   # Add this platform to `commitHash:platforms` list.
   discard database.r.lPush(commitHash & ":" & "platforms", platform)
-  # Add the commit message as a property
+  # Add the commit message, current date and username as a property
   updateProperty(database, commitHash, platform, "commitMsg", commitMsg)
+  updateProperty(database, commitHash, platform, "date", $int(getTime()))
+  updateProperty(database, commitHash, platform, "username", user)
 
 proc keepAlive*(database: var TDb) =
   ## Keep the connection alive. Ping redis in this case. This functions does
@@ -95,6 +98,10 @@ proc getCommits*(database: TDb,
           commit.failed = parseBiggestInt(value)
         of "commitmsg":
           commit.commitMsg = value
+        of "date":
+          commit.date = TTime(parseInt(value))
+        of "username":
+          commit.username = value
         else:
           echo(normalize(key))
           assert(false)

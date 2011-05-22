@@ -11,33 +11,12 @@
 <body>
   <div id="header">NimBuild - Nimrod's build farm.</div>
   <div id="content">
-  #if state.platforms.len() > 0:
-    <p>Platforms: ${state.platforms.len}</p>
-    <p>Status: ${state.platforms[0].status.status}</p>
-    <p>${state.platforms[0].status.desc}</p>
-    #if state.platforms[0].status.status >= sBuildSuccess:
-    #var filePath = makeCommitPath(state.platforms[0].platform,
-    #                               state.platforms[0].status.hash)
-    #var zipFile  = addFileExt(filePath, "zip")
-    #var bz2File  = addFileExt(filePath, "tar.bz2")
-    <p>
-      <a href="http://dom96.co.cc/nimbuild/commits/${zipFile}">
-        Download zip
-      </a>
-    </p>
-    <p>
-      <a href="http://dom96.co.cc/nimbuild/commits/${bz2File}">
-        Download tarball
-      </a>
-    </p>
-    #end if
-  #else:
-    <p>Status: Idle</p>
-  #end if
+ 
   
   <!-- Output information from database -->
   #var platforms: seq[string] = @[]
-  #var commits = getCommits(state.database, platforms)
+  #var commits = getCommits(state.database, platforms) 
+  ${genDownloadButtons(commits)}
   #if platforms.len() > 0:
     <table>
       <tr>
@@ -45,12 +24,18 @@
         #for p in items(platforms):
           <th>${p}</th>
         #end for
+        <th>author</td>
+        <th>date</th>
+        <th>message</th>
       </tr>
       #for i in items(commits):
         <tr>
         #for p in items(platforms):
           <td>${i[p].hash[0..11]}</td>
           <td>${genPlatformResult(i[p], state.platforms)}</td> <!-- TODO: Get the desc in here -->
+          <td>${i[p].username}</td>
+          <td>${i[p].date}</td>
+          <td>${i[p].commitMsg[0..60]}</td>
         #end for
         </tr>
       #end for
@@ -58,6 +43,16 @@
   #else: 
     <p>No commits found</p>
   #end if
+  
+  #if state.platforms.len() > 0:
+    <p>Platforms: ${state.platforms.len}</p>
+    <p>Status: ${state.platforms[0].status.status}</p>
+    <p>${state.platforms[0].status.desc}</p>
+    
+  #else:
+    <p>Status: Idle</p>
+  #end if
+  
   </div>
 </body>
 </html>
