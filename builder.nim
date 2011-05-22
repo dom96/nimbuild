@@ -10,7 +10,7 @@ type
     pullProc, 
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
-    zipNim, bz2Nim, # archive
+    zipNim, # archive
     compileTester, runTests # Testing
     
   TProgress = object
@@ -242,41 +242,30 @@ proc nextStage(state: var TState) =
     state.progress.p = startMyProcess("koch", 
         state.nimLoc, "boot", "-d:release")
     state.buildProgressing("Bootstrapping Nimrod in release mode")
-  of bootNim, zipNim:
+  of bootNim:
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
     var dir = state.zipLoc / folderName
     var zipFile = addFileExt(folderName, "zip")
-    var bz2File = addFileExt(folderName, "tar.bz2")
     
     dCreateDir(dir)
     # TODO: This will block :(
     copyForArchive(state.nimLoc, dir)
     
-    if state.progress.currentProc == bootNim:
-      # Remove the .zip in case they already exist...
-      if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
-      state.progress.currentProc = zipNim
-      state.progress.p = startMyProcess(findexe("zip"), 
-          state.zipLoc, "-r", zipFile, folderName)
-      state.buildProgressing("Creating archive - zip")
-    
-    elif state.progress.currentProc == zipNim:
-      if existsFile(state.zipLoc / bz2File): removeFile(state.zipLoc / bz2File)
-      state.progress.currentProc = bz2Nim
-      state.progress.p = startMyProcess(findexe("tar"), 
-          state.zipLoc, "-jcvf", bz2File, folderName)
-      state.buildProgressing("Creating archive - tar.bz2")
+    # Remove the .zip in case they already exist...
+    if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
+    state.progress.currentProc = zipNim
+    state.progress.p = startMyProcess(findexe("zip"), 
+        state.zipLoc, "-r", zipFile, folderName)
+    state.buildProgressing("Creating archive - zip")
   
-  of bz2Nim:
-    # Copy the .zip and .tar.bz2 files
+  of zipNim:
+    # Copy the .zip file
     var commitHash = state.progress.payload["after"].str
     var fileName = makeCommitPath(state.platform, commitHash)
     var zip = addFileExt(fileName, "zip")
-    var bz2 = addFileExt(fileName, ".tar.bz2")
     #dCreateDir(state.websiteLoc / "commits" / state.platform)
     dCopyFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
-    dCopyFile(state.zipLoc / bz2, state.websiteLoc / "commits" / bz2)
     
     buildSucceeded(state)
   
@@ -368,7 +357,7 @@ proc checkProgress(state: var TState) =
          
         writeLogs(state.logFile, state.progress.commitFile, s & "\n")
         
-        if state.progress.currentProc <= bz2nim:
+        if state.progress.currentProc <= zipNim:
           echo(state.progress.currentProc,
                " failed. Build failed! Exit code = ", exitCode)
           buildFailed(state, $state.progress.currentProc &
