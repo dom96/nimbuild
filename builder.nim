@@ -103,6 +103,7 @@ proc buildSucceeded(state: var TState) =
   var obj = newJObject()
   obj["status"] = newJInt(int(sBuildSuccess))
   obj["hash"] = newJString(state.progress.payload["after"].str)
+  obj["websiteURL"] = newJString(state.websiteURL)
 
   state.sock.send($obj & "\c\L")
   echo("Build successfully completed")
@@ -129,11 +130,16 @@ proc testProgressing(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc testSucceeded(state: var TState) =
+proc testSucceeded(state: var TState, total, passed,
+                   skipped, failed: biggestInt) =
   state.status.status = sTestSuccess
   var obj = newJObject()
   obj["status"] = newJInt(int(sTestSuccess))
   obj["hash"] = newJString(state.progress.payload["after"].str)
+  obj["total"] = newJString($total)
+  obj["passed"] = newJString($passed)
+  obj["skipped"] = newJString($skipped)
+  obj["failed"] = newJString($failed)
 
   state.sock.send($obj & "\c\L")
   echo("Tests completed")
@@ -162,6 +168,26 @@ proc copyForArchive(nimLoc, dest: string) =
   
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
+
+# TODO: Make this a template?
+proc tally3(obj: PJsonNode, name: string, 
+            total, passed, skipped: var biggestInt) =
+  total = total + obj[name]["total"].num
+  passed = passed + obj[name]["passed"].num
+  skipped = skipped + obj[name]["skipped"].num
+
+proc tallyTestResults(path: string): 
+    tuple[total, passed, skipped, failed: biggestInt] =
+  var f = readFile(path)
+  var obj = parseJson(f)
+  var total: biggestInt = 0
+  var passed: biggestInt = 0
+  var skipped: biggestInt = 0
+  tally3(obj, "reject", total, passed, skipped)
+  tally3(obj, "compile", total, passed, skipped)
+  tally3(obj, "run", total, passed, skipped)
+  
+  return (total, passed, skipped, total - (passed + skipped))
 
 proc beginBuild(state: var TState) =
   ## This procedure starts the process of building nimrod. All it does
@@ -279,7 +305,11 @@ proc nextStage(state: var TState) =
                         
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
-    testSucceeded(state)
+    
+    var (total, passed, skipped, failed) = 
+        tallyTestResults(state.nimLoc / "testresults.json")
+    
+    testSucceeded(state, total, passed, skipped, failed)
     # TODO: Copy testresults.json too?
 
 proc readAll(s: PStream): string =

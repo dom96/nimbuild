@@ -1,0 +1,27 @@
+body {
+  font-size: medium;
+}
+
+div#header {
+  font-size: 2em;
+  background-color: #3d3d3d;
+  border-bottom: solid 2px #000000;
+  padding: 0.25em;
+  color: #ffffff;
+}
+
+div#content {
+  margin: 0.5em;
+}
+
+table {
+  text-align: center;
+}
+
+table td, table th {
+  padding: 0.15em 0.5em;
+}
+
+tr:nth-child(even) {
+  background-color: #eee;
+}

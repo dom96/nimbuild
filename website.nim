@@ -3,12 +3,14 @@ import sockets, json, strutils, os, scgi, strtabs
 import types, db
 
 type
+  HPlatformStatus = seq[tuple[platform: string, status: TStatus]]
+  
   TState = object
     sock: TSocket ## Hub server socket. All modules connect to this.
     modules: seq[TModule]
     scgi: TScgiState
     database: TDb
-    platforms: seq[tuple[platform: string, status: TStatus]]
+    platforms: HPlatformStatus
 
   TModule = object
     name: string
@@ -44,7 +46,7 @@ proc contains(modules: seq[TModule], name: string): bool =
   
   return false
 
-proc contains(platforms: seq[tuple[platform: string, status: TStatus]],
+proc contains(platforms: HPlatformStatus,
               p: string): bool =
   for platform, s in items(platforms):
     if platform == p:
@@ -66,7 +68,7 @@ proc parseGreeting(state: var TState, client: var TSocket, line: string) =
     if module.platform notin state.platforms:
       state.platforms.add((module.platform, initStatus()))
 
-proc `[]`*(ps: seq[tuple[platform: string, status: TStatus]],
+proc `[]`*(ps: HPlatformStatus,
            platform: string): TStatus =
   assert(ps.len > 0)
   for p, s in items(ps):
@@ -74,7 +76,7 @@ proc `[]`*(ps: seq[tuple[platform: string, status: TStatus]],
       return s
   raise newException(EInvalidValue, platform & " is not a valid platform.")
 
-proc `[]=`*(ps: var seq[tuple[platform: string, status: TStatus]],
+proc `[]=`*(ps: var HPlatformStatus,
             platform: string, status: TStatus) =
   var index = -1
   var count = 0
@@ -100,6 +102,9 @@ proc setStatus(state: var TState, p: string, status: TStatusEnum,
   echo("setStatus -- ", TStatusEnum(status), " -- ", p)
   state.platforms[p] = s
 
+# TODO: Instead of using assertions provide a function which checks whether the
+# key exists and throw an exception if it doesn't.
+
 proc parseMessage(state: var TState, m: TModule, line: string) =
   var json = parseJson(line)
   if json.existsKey("status"):
@@ -119,9 +124,12 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sBuildInProgress, json["desc"].str, hash)
     of sBuildSuccess:
+      assert(json.existsKey("websiteURL"))
       state.setStatus(m.platform, sBuildSuccess, "", hash)
       state.database.updateProperty(hash, m.platform, "buildResult", 
                                     $int(bSuccess))
+      state.database.updateProperty(hash, m.platform, "websiteURL", 
+                                    json["websiteURL"].str)
     of sTestFailure:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sTestFailure, json["desc"].str, hash)
@@ -134,9 +142,21 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sTestInProgress, json["desc"].str, hash)
     of sTestSuccess:
+      assert(json.existsKey("total"))
+      assert(json.existsKey("passed"))
+      assert(json.existsKey("skipped"))
+      assert(json.existsKey("failed"))
       state.setStatus(m.platform, sTestSuccess, "", hash)
       state.database.updateProperty(hash, m.platform,
           "testResult", $int(tSuccess))
+      state.database.updateProperty(hash, m.platform,
+          "total", json["total"].str)
+      state.database.updateProperty(hash, m.platform,
+          "passed", json["passed"].str)
+      state.database.updateProperty(hash, m.platform,
+          "skipped", json["skipped"].str)
+      state.database.updateProperty(hash, m.platform,
+          "failed", json["failed"].str)
     of sUnknown:
       assert(false)
   elif json.existsKey("payload"):
@@ -147,7 +167,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
         if module.name == "builder":
           # Add commit to database
           state.database.addCommit(json["payload"]["after"].str,
-                                   module.platform)
+              module.platform, json["payload"]["commits"][0]["message"].str)
           
           module.sock.send($json & "\c\L")
   else:
@@ -182,15 +202,38 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
 
 # HTML Generation
 
-proc genPlatformResult(p: TCommit): string =
+proc joinUrl(u, u2: string): string =
+  if u.endswith("/"):
+    return u & u2
+  else: return u & "/" & u2
+
+proc genPlatformResult(p: TCommit, platforms: HPlatformStatus): string =
   result = ""
-  if p.buildResult == bSuccess:
-    result.add("ok ")
-    if p.testResult == tSuccess:
-      result.add("ok")
-    else:
-      result.add("fail")
-  else: result.add("fail fail")
+  var weburl = joinUrl(p.websiteUrl, "commits/$1/nimrod_$2/" % 
+                                     [p.platform, p.hash[0..11]])
+  var logurl = joinUrl(weburl, "log.txt")
+  case p.buildResult
+  of bUnknown:
+    if p.platform in platforms:
+      if platforms[p.platform].hash == p.hash:
+        result.add("<img src=\"static/images/progress.gif\"/>")
+  of bFail: 
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
+  of bSuccess: result.add("ok")
+  result.add(" ")
+  case p.testResult
+  of tUnknown:
+    if p.platform in platforms:
+      if platforms[p.platform].hash == p.hash:
+        result.add("<img src=\"static/images/progress.gif\"/>")
+  of tFail:
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
+  of tSuccess:
+    var testresultsURL = joinUrl(weburl, "testresults.html")
+    var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
+    result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
+               formatFloat(percentage, precision=4) & "%</a>")
+
 include "index.html"
 # SCGI
 

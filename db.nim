@@ -8,17 +8,18 @@ type
     lastPing: float
 
   TBuildResult* = enum
-    bFail, bSuccess
+    bUnknown, bFail, bSuccess
 
   TTestResult* = enum
-    tFail, tSuccess
+    tUnknown, tFail, tSuccess
 
   TPlatforms* = seq[TCommit]
   
   TCommit* = object
     buildResult*: TBuildResult
     testResult*: TTestResult
-    failReason*, platform*, hash*: string
+    failReason*, platform*, hash*, websiteURL*, commitMsg*: string
+    total*, passed*, skipped*, failed*: biggestInt
 
 const
   listName = "commits"
@@ -36,7 +37,15 @@ proc customHSet(database: TDb, name, field, value: string) =
     else:
       echo("[Warning:REDIS] ", field, " already exists in ", name)
 
-proc addCommit*(database: TDb, commitHash, platform: string) =
+proc updateProperty*(database: TDb, commitHash, platform, property,
+                    value: string) =
+  var name = platform & ":" & commitHash
+  if database.r.hSet(name, property, value).int == 0:
+    echo("[INFO:REDIS] '$1' field updated in hash" % [property])
+  else:
+    echo("[INFO:REDIS] '$1' new field added to hash" % [property])
+
+proc addCommit*(database: TDb, commitHash, platform, commitMsg: string) =
   var name = platform & ":" & commitHash
   if database.r.exists(name):
     if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
@@ -46,14 +55,8 @@ proc addCommit*(database: TDb, commitHash, platform: string) =
   discard database.r.lPush(listName, commitHash)
   # Add this platform to `commitHash:platforms` list.
   discard database.r.lPush(commitHash & ":" & "platforms", platform)
-
-proc updateProperty*(database: TDb, commitHash, platform, property,
-                    value: string) =
-  var name = platform & ":" & commitHash
-  if database.r.hSet(name, property, value).int == 0:
-    echo("[INFO:REDIS] 1 field updated in hash")
-  else:
-    echo("[INFO:REDIS] 1 new field added to hash")
+  # Add the commit message as a property
+  updateProperty(database, commitHash, platform, "commitMsg", commitMsg)
 
 proc keepAlive*(database: var TDb) =
   ## Keep the connection alive. Ping redis in this case. This functions does
@@ -73,14 +76,27 @@ proc getCommits*(database: TDb,
     for p in items(platformsRaw):
       var commit: TCommit
       for key, value in database.r.hashIterAll(p & ":" & c):
-        case key
-        of "buildResult":
+        case normalize(key)
+        of "buildresult":
           commit.buildResult = parseInt(value).TBuildResult
-        of "testResult":
+        of "testresult":
           commit.testResult = parseInt(value).TTestResult
-        of "failReason":
+        of "failreason":
           commit.failReason = value
+        of "websiteurl":
+          commit.websiteURL = value
+        of "total":
+          commit.total = parseBiggestInt(value)
+        of "passed":
+          commit.passed = parseBiggestInt(value)
+        of "skipped":
+          commit.skipped = parseBiggestInt(value)
+        of "failed":
+          commit.failed = parseBiggestInt(value)
+        of "commitmsg":
+          commit.commitMsg = value
         else:
+          echo(normalize(key))
           assert(false)
       
       commit.platform = p
@@ -90,7 +106,6 @@ proc getCommits*(database: TDb,
       if p notin platforms:
         platforms.add(P)
     result.add(commitPlatforms)
-  assert(result.len > 0)
 
 proc `[]`*(cPlatforms: TPlatforms, p: string): TCommit =
   for c in items(cPlatforms):

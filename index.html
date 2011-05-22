@@ -4,9 +4,13 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <title>Nimbuild</title>
+  <title>NimBuild</title>
+	<link rel="stylesheet" href="static/css/boilerplate.css">
+	<link rel="stylesheet" href="static/css/style.css">
 </head>
 <body>
+  <div id="header">NimBuild - Nimrod's build farm.</div>
+  <div id="content">
   #if state.platforms.len() > 0:
     <p>Platforms: ${state.platforms.len}</p>
     <p>Status: ${state.platforms[0].status.status}</p>
@@ -17,12 +21,12 @@
     #var zipFile  = addFileExt(filePath, "zip")
     #var bz2File  = addFileExt(filePath, "tar.bz2")
     <p>
-      <a href="http://dom96.co.cc/nimbuild/downloads/${zipFile}">
+      <a href="http://dom96.co.cc/nimbuild/commits/${zipFile}">
         Download zip
       </a>
     </p>
     <p>
-      <a href="http://dom96.co.cc/nimbuild/downloads/${bz2File}">
+      <a href="http://dom96.co.cc/nimbuild/commits/${bz2File}">
         Download tarball
       </a>
     </p>
@@ -37,7 +41,7 @@
   #if platforms.len() > 0:
     <table>
       <tr>
-        <th>Commit</th>
+        <th>commit</th>
         #for p in items(platforms):
           <th>${p}</th>
         #end for
@@ -45,8 +49,8 @@
       #for i in items(commits):
         <tr>
         #for p in items(platforms):
-          <td>${i[p].hash}</td>
-          <td>${genPlatformResult(i[p])}</td> <!-- TODO: Get the desc in here -->
+          <td>${i[p].hash[0..11]}</td>
+          <td>${genPlatformResult(i[p], state.platforms)}</td> <!-- TODO: Get the desc in here -->
         #end for
         </tr>
       #end for
@@ -54,6 +58,6 @@
   #else: 
     <p>No commits found</p>
   #end if
-  
+  </div>
 </body>
 </html>
