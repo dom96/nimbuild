@@ -3,7 +3,8 @@ import os
 type
   TStatusEnum* = enum
     sUnknown = -1, sBuildFailure, sBuildInProgress, sBuildSuccess, 
-    sTestFailure, sTestInProgress, sTestSuccess # ORDER MATTERS!
+    sTestFailure, sTestInProgress, sTestSuccess, # ORDER MATTERS!
+    sDocGenFailure, sDocGenInProgress, sDocGenSuccess
 
   TStatus* = object
     status*: TStatusEnum
@@ -16,7 +17,8 @@ proc initStatus*(): TStatus =
   result.hash = ""
 
 proc isInProgress*(status: TStatusEnum): bool =
-  return status == sBuildInProgress or status == sTestInProgress
+  return status == sBuildInProgress or status == sTestInProgress or
+         status == sDocGenInProgress
 
 proc `$`*(status: TStatusEnum): string =
   case status
@@ -32,6 +34,12 @@ proc `$`*(status: TStatusEnum): string =
     return "testing in progress"
   of sTestSuccess:
     return "testing finished"
+  of sDocGenFailure:
+    return "documentation generation failed"
+  of sDocGenInProgress:
+    return "generating documentation"
+  of sDocGenSuccess:
+    return "documentation generation succeeded"
   of sUnknown:
     return "unknown"
     

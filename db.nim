@@ -78,7 +78,7 @@ proc getCommits*(database: TDb,
     var commitPlatforms: TPlatforms = @[]
     for p in items(platformsRaw):
       var commit: TCommit
-      for key, value in database.r.hashIterAll(p & ":" & c):
+      for key, value in database.r.hPairs(p & ":" & c):
         case normalize(key)
         of "buildresult":
           commit.buildResult = parseInt(value).TBuildResult

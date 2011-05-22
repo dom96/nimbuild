@@ -76,7 +76,7 @@ a.button:hover {
   color: #ffffff;
 }
 
-a.button.middle:hover {
+a.button.middle:hover, a.button.right:hover {
   border-left: 0;
 }
 

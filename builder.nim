@@ -11,7 +11,8 @@ type
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
-    compileTester, runTests # Testing
+    compileTester, runTests, # Testing
+    runDocGen # Doc gen
     
   TProgress = object
     currentProc: TCurrentProc
@@ -30,6 +31,7 @@ type
     logLoc: string ## Location of the logs for this module.
     logFile: TFile
     zipLoc: string ## Location of where to copy the files for zipping.
+    docgen: bool ## Determines whether to generate docs.
     platform: string
 
 # Configuration
@@ -67,9 +69,12 @@ proc parseConfig(state: var TState, path: string) =
         of "archivepath":
           state.zipLoc = n.value
           inc(count)
+        of "docgen":
+          state.docgen = if normalize(n.value) == "true": true else: false
+          inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count != 6: 
+    if count != 7: 
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
@@ -144,9 +149,39 @@ proc testSucceeded(state: var TState, total, passed,
   state.sock.send($obj & "\c\L")
   echo("Tests completed")
 
+proc docGenProgressing(state: var TState, desc: string) =
+  state.status.status = sDocGenInProgress
+  state.status.desc = desc
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sDocGenInProgress))
+  obj["desc"] = newJString(desc)
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo(desc)
+
+proc docGenFailed(state: var TState, desc: string) =
+  state.status.status = sDocGenFailure
+  state.status.desc = desc
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sDocGenFailure))
+  obj["desc"] = newJString(desc)
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo(desc)
+
+proc docGenSucceeded(state: var TState) =
+  state.status.status = sDocGenSuccess
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sDocGenSuccess))
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo("Doc gen success")
+
 proc startMyProcess(cmd, workDir: string, args: openarray[string]): PProcess =
-  result = startProcess(cmd, workDir, args,
-                        nil, {})
+  result = startProcess(cmd, workDir, args, nil)
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -300,6 +335,21 @@ proc nextStage(state: var TState) =
     
     testSucceeded(state, total, passed, skipped, failed)
     # TODO: Copy testresults.json too?
+    
+    # --- Start of doc gen ---
+    # Create the upload directory and the docs directory on the website
+    if state.docgen:
+      dCreateDir(state.nimLoc / "web" / "upload")
+      dCreateDir(state.websiteLoc / "docs")
+      state.progress.currentProc = runDocGen
+      state.progress.p = startMyProcess("koch", 
+                state.nimLoc, "web")
+      docgenProgressing(state, "Running koch web...")
+  of runDocGen:
+    # Copy all the docs to the website.
+    dCopyDir(state.nimLoc / "web" / "upload", state.websiteLoc / "docs")
+    
+    docgenSucceeded(state)
 
 proc readAll(s: PStream): string =
   result = ""
@@ -366,6 +416,11 @@ proc checkProgress(state: var TState) =
           echo(state.progress.currentProc,
                " failed. Running tests failed! Exit code = ", exitCode)
           testingFailed(state, $state.progress.currentProc &
+                        " failed with exit code 1")
+        elif state.progress.currentProc <= runDocGen:
+          echo(state.progress.currentProc,
+               " failed. Generating docs failed! Exit code = ", exitCode)
+          docgenFailed(state, $state.progress.currentProc &
                         " failed with exit code 1")
 
 # Communication

@@ -157,6 +157,15 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
           "skipped", json["skipped"].str)
       state.database.updateProperty(hash, m.platform,
           "failed", json["failed"].str)
+    of sDocGenFailure:
+      assert(json.existsKey("desc"))
+      state.setStatus(m.platform, sDocGenFailure, json["desc"].str, hash)
+    of sDocGenInProgress:
+      assert(json.existsKey("desc"))
+      state.setStatus(m.platform, sDocGenInProgress, json["desc"].str, hash)
+    of sDocGenSuccess:
+      state.setStatus(m.platform, sDocGenSuccess, "", hash)
+    
     of sUnknown:
       assert(false)
   elif json.existsKey("payload"):
