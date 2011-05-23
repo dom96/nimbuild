@@ -120,7 +120,10 @@ proc `[]`*(cPlatforms: TPlatforms, p: string): TCommit =
       return c
   raise newException(EInvalidValue, p & " platforms not found in commits.")
   
-    
+proc contains*(p: TPlatforms, s: string): bool =
+  for c in items(p):
+    if c.platform == s:
+      return True
     
     
 

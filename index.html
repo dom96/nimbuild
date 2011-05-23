@@ -5,8 +5,8 @@
 <html lang="en">
 <head>
   <title>NimBuild</title>
-	<link rel="stylesheet" href="static/css/boilerplate.css">
-	<link rel="stylesheet" href="static/css/style.css">
+	<link rel="stylesheet" href="${genCssPath(state)}static/css/boilerplate.css">
+	<link rel="stylesheet" href="${genCssPath(state)}static/css/style.css">
 </head>
 <body>
   <div id="header">NimBuild - Nimrod's build farm.</div>
@@ -16,7 +16,7 @@
   <!-- Output information from database -->
   #var platforms: seq[string] = @[]
   #var commits = getCommits(state.database, platforms) 
-  ${genDownloadButtons(commits)}
+  ${genDownloadButtons(commits, platforms)}
   #if platforms.len() > 0:
     <table>
       <tr>

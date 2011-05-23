@@ -2,6 +2,9 @@
 import sockets, json, strutils, os, scgi, strtabs, times
 import types, db
 
+const
+  websiteURL = "http://dom96.co.cc/nimbuild/"
+
 type
   HPlatformStatus = seq[tuple[platform: string, status: TStatus]]
   
@@ -244,25 +247,39 @@ proc genPlatformResult(p: TCommit, platforms: HPlatformStatus): string =
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
 
-proc genDownloadButtons(commits: seq[TPlatforms]): string =
+proc genDownloadButtons(commits: seq[TPlatforms], platforms: seq[string]): string =
   result = ""
-  const downloadSpan = "<span class=\"download\"></span>"
-  # TODO: Leave space for the "Documentation" button.
+  const 
+    downloadSpan = "<span class=\"download\"></span>"
+    docSpan      = "<span class=\"book\"></span>"
   var i = 0
-  for c in items(commits):
-    if c[0].buildResult == bSuccess:
-      # TODO: .zip for windows and .tar.bz2 for Linux.
-      var url = joinUrl(c[0].websiteUrl, "commits/$1/nimrod_$2.zip" % 
-                        [c[0].platform, c[0].hash[0..11]])
-      var class = ""
-      if i == 0: class = "left button"
-      elif i < len(commits)-1: class = "middle button"
-      else: class = "right button"
-      
-      result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
-                 [url, class, downloadSpan,
-                  c[0].platform & "-" & c[0].hash[0..11]])
-    inc(i)
+  for p in items(platforms):
+    for c in items(commits):
+      if p in c:
+        var commit = c[p]
+        if commit.buildResult == bSuccess:
+          var url = joinUrl(commit.websiteUrl, "commits/$1/nimrod_$2.zip" % 
+                            [commit.platform, commit.hash[0..11]])
+          var class = ""
+          if i == 0: class = "left button"
+          else: class = "middle button"
+          
+          result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
+                     [url, class, downloadSpan,
+                      commit.platform & "-" & commit.hash[0..11]])
+        inc(i)
+        break
+  
+  result.add("<a href=\"$1\" class=\"$2\">$3Documentation</a>" %
+             [joinUrl(websiteURL, "docs/lib.html"), "right active button",
+              docSpan])
+
+proc genCssPath(state: TState): string =
+  # TODO: You might want to test this more thoroughly.
+  var reqPath = state.scgi.headers["REQUEST_URI"]
+  if reqPath.endswith("/"):
+    return ""
+  else: return reqPath & "/"
 
 include "index.html"
 # SCGI
@@ -277,6 +294,7 @@ proc handleRequest(state: var TState) =
   var client = state.scgi.client
   var headers = state.scgi.headers
   echo(headers["HTTP_USER_AGENT"])
+  echo(headers)
   if headers["REQUEST_METHOD"] == "GET":
     var hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
     echo("Got website request from ", hostname)
