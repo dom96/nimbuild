@@ -5,4 +5,4 @@
 * <del>Doc generation!</del>
 * grep "TODO"
 * <del>Generate C Sources for every platform.</del>
-* Include GPL license in with the distribution. Also readme file which mentions that this is a minimal distribution.
+* <del>Include GPL license in with the distribution. Also readme file which mentions that this is a minimal distribution.</del>

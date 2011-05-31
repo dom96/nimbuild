@@ -4,6 +4,11 @@ import types
 
 const
   builderVer = "0.1"
+  buildReadme = """
+This is a minimal distribution of the Nimrod compiler. Full source code can be
+found at http://github.com/Araq/Nimrod
+"""
+
 
 type
   TCurrentProc = enum
@@ -241,6 +246,12 @@ proc copyForArchive(nimLoc, dest: string) =
   var nimBin = "bin" / addFileExt("nimrod", ExeExt)
   dCopyFile(nimLoc / nimBin, dest / nimBin)
   dCopyFile(nimLoc / "readme.txt", dest / "readme.txt")
+  dCopyFile(nimLoc / "copying.txt", dest / "copying.txt")
+  dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
+  # TODO: Use writeFile once Araq implements it.
+  var f: TFile
+  if not open(f, dest / "readme2.txt"): OSError()
+  f.write(buildReadme)
   
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
@@ -417,6 +428,15 @@ proc nextStage(state: var TState) =
     # -- Copy build.sh and build.bat.
     dCopyFile(state.nimLoc / "build.sh", state.zipLoc / folderName / "build.sh")
     dCopyFile(state.nimLoc / "build.bat", state.zipLoc / folderName / "build.bat")
+    # -- License
+    dCopyFile(state.nimLoc / "copying.txt", 
+              state.zipLoc / folderName / "copying.txt")
+    dCopyFile(state.nimLoc / "gpl.html", 
+              state.zipLoc / folderName / "gpl.html")
+    # -- Build readme -- TODO: Use writeFile once Araq implements it.
+    var f: TFile
+    if not open(f, state.zipLoc / folderName / "readme2.txt"): OSError()
+    f.write(buildReadme)
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
