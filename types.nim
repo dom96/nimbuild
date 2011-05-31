@@ -2,9 +2,10 @@ import os
 # TODO: Rename this module to ``utils``
 type
   TStatusEnum* = enum
-    sUnknown = -1, sBuildFailure, sBuildInProgress, sBuildSuccess, 
+    sUnknown, sBuildFailure, sBuildInProgress, sBuildSuccess, 
     sTestFailure, sTestInProgress, sTestSuccess, # ORDER MATTERS!
-    sDocGenFailure, sDocGenInProgress, sDocGenSuccess
+    sDocGenFailure, sDocGenInProgress, sDocGenSuccess,
+    sCSrcGenFailure, sCSrcGenInProgress, sCSrcGenSuccess
 
   TStatus* = object
     status*: TStatusEnum
@@ -17,8 +18,8 @@ proc initStatus*(): TStatus =
   result.hash = ""
 
 proc isInProgress*(status: TStatusEnum): bool =
-  return status == sBuildInProgress or status == sTestInProgress or
-         status == sDocGenInProgress
+  return status in {sBuildInProgress, sTestInProgress, sDocGenInProgress, 
+                    sCSrcGenInProgress}
 
 proc `$`*(status: TStatusEnum): string =
   case status
@@ -40,8 +41,14 @@ proc `$`*(status: TStatusEnum): string =
     return "generating documentation"
   of sDocGenSuccess:
     return "documentation generation succeeded"
+  of sCSrcGenFailure:
+    return "csource generation failed"
+  of sCSrcGenInProgress:
+    return "csource generation in progress"
+  of sCSrcGenSuccess:
+    return "csource generation succeeded"
   of sUnknown:
     return "unknown"
     
 proc makeCommitPath*(platform, hash: string): string =
-  return platform / "nimrod_" & hash.copy(0, 11) # 11 Chars.
+  return "nimrod_" & hash.copy(0, 11) & "_" & platform # 11 Chars.

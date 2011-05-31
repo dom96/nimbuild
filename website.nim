@@ -115,6 +115,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     assert(json.existsKey("hash"))
     var hash = json["hash"].str
 
+    # TODO: Clean this up?
     case TStatusEnum(json["status"].num)
     of sBuildFailure:
       assert(json.existsKey("desc"))
@@ -168,7 +169,15 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
       state.setStatus(m.platform, sDocGenInProgress, json["desc"].str, hash)
     of sDocGenSuccess:
       state.setStatus(m.platform, sDocGenSuccess, "", hash)
-    
+    of sCSrcGenFailure:
+      assert(json.existsKey("desc"))
+      state.setStatus(m.platform, sCSrcGenFailure, json["desc"].str, hash)
+    of sCSrcGenInProgress:
+      assert(json.existsKey("desc"))
+      state.setStatus(m.platform, sCSrcGenInProgress, json["desc"].str, hash)
+    of sCSrcGenSuccess:
+      state.setStatus(m.platform, sCSrcGenSuccess, "", hash)
+      state.database.updateProperty(hash, m.platform, "csources", "t")
     of sUnknown:
       assert(false)
   elif json.existsKey("payload"):
@@ -247,19 +256,21 @@ proc genPlatformResult(p: TCommit, platforms: HPlatformStatus): string =
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
 
-proc genDownloadButtons(commits: seq[TPlatforms], platforms: seq[string]): string =
+proc genDownloadButtons(commits: seq[TPlatforms], 
+                        platforms: seq[string]): string =
   result = ""
   const 
     downloadSpan = "<span class=\"download\"></span>"
     docSpan      = "<span class=\"book\"></span>"
   var i = 0
+  var cSrcs = False
   for p in items(platforms):
     for c in items(commits):
       if p in c:
         var commit = c[p]
         if commit.buildResult == bSuccess:
-          var url = joinUrl(commit.websiteUrl, "commits/$1/nimrod_$2.zip" % 
-                            [commit.platform, commit.hash[0..11]])
+          var url = joinUrl(commit.websiteUrl, "commits/nimrod_$1_$2.zip" % 
+                            [commit.hash[0..11], commit.platform])
           var class = ""
           if i == 0: class = "left button"
           else: class = "middle button"
@@ -267,6 +278,14 @@ proc genDownloadButtons(commits: seq[TPlatforms], platforms: seq[string]): strin
           result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
                      [url, class, downloadSpan,
                       commit.platform & "-" & commit.hash[0..11]])
+                      
+          if commit.csources and not cSrcs:
+            var cSrcUrl = joinUrl(commit.websiteUrl,
+                                  "commits/nimrod_$1_$2_csources.zip" % 
+                                  [commit.hash[0..11], commit.platform])
+            result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
+                       [cSrcUrl, "middle button", downloadSpan,
+                        "csources-" & commit.hash[0..11]])
         inc(i)
         break
   

@@ -21,6 +21,7 @@ type
     failReason*, platform*, hash*, websiteURL*, commitMsg*, username*: string
     total*, passed*, skipped*, failed*: biggestInt
     date*: TTime
+    csources*: bool
 
 const
   listName = "commits"
@@ -102,6 +103,8 @@ proc getCommits*(database: TDb,
           commit.date = TTime(parseInt(value))
         of "username":
           commit.username = value
+        of "csources":
+          commit.csources = if value == "t": true else: false
         else:
           echo(normalize(key))
           assert(false)

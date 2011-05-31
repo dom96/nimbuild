@@ -12,7 +12,8 @@ type
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
     compileTester, runTests, # Testing
-    runDocGen # Doc gen
+    runDocGen, # Doc gen
+    runCSrcGen, zipCSrc # csource gen
     
   TProgress = object
     currentProc: TCurrentProc
@@ -32,6 +33,7 @@ type
     logFile: TFile
     zipLoc: string ## Location of where to copy the files for zipping.
     docgen: bool ## Determines whether to generate docs.
+    csourceGen: bool ## Determines whether to generate csources.
     platform: string
 
 # Configuration
@@ -69,12 +71,15 @@ proc parseConfig(state: var TState, path: string) =
         of "archivepath":
           state.zipLoc = n.value
           inc(count)
-        of "docgen":
+        of "docgen": # -- Optional
           state.docgen = if normalize(n.value) == "true": true else: false
+          inc(count)
+        of "csourcegen":
+          state.csourceGen = if normalize(n.value) == "true": true else: false
           inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count != 7: 
+    if count <= 6: 
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
@@ -180,6 +185,37 @@ proc docGenSucceeded(state: var TState) =
   state.sock.send($obj & "\c\L")
   echo("Doc gen success")
 
+proc cSrcGenProgressing(state: var TState, desc: string) =
+  state.status.status = sCSrcGenInProgress
+  state.status.desc = desc
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sCSrcGenInProgress))
+  obj["desc"] = newJString(desc)
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo(desc)
+
+proc cSrcGenFailed(state: var TState, desc: string) =
+  state.status.status = sCSrcGenFailure
+  state.status.desc = desc
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sCSrcGenFailure))
+  obj["desc"] = newJString(desc)
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo(desc)
+
+proc cSrcGenSucceeded(state: var TState) =
+  state.status.status = sCSrcGenSuccess
+  var obj = newJObject()
+  obj["status"] = newJInt(int(sCSrcGenSuccess))
+  obj["hash"] = newJString(state.progress.payload["after"].str)
+ 
+  state.sock.send($obj & "\c\L")
+  echo("csource gen success")
+
 proc startMyProcess(cmd, workDir: string, args: openarray[string]): PProcess =
   result = startProcess(cmd, workDir, args, nil)
 
@@ -194,6 +230,11 @@ proc dCopyDir(src, dest: string) =
 proc dCreateDir(s: string) =
   echo("[INFO] Creating directory ", s)
   createDir(s)
+
+proc dMoveDir(s: string, s1: string) =  
+  echo("[INFO] Moving directory ", s, " to ", s1)
+  copyDir(s, s1)
+  removeDir(s)
 
 proc copyForArchive(nimLoc, dest: string) =
   dCreateDir(dest / "bin")
@@ -325,7 +366,7 @@ proc nextStage(state: var TState) =
     setFilePermissions(state.websiteLoc / "commits" / folderName,
                        {fpGroupRead, fpGroupExec, fpOthersRead,
                         fpOthersExec, fpUserWrite,
-                        fpUserRead, fpUserExec})
+                        fpUserRead, fpUserExec}) # TODO: Make a webReadFP const
                         
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
@@ -350,6 +391,48 @@ proc nextStage(state: var TState) =
     dCopyDir(state.nimLoc / "web" / "upload", state.websiteLoc / "docs")
     
     docgenSucceeded(state)
+  
+    # --- Start of csources gen ---
+    if state.csourceGen:
+      # Rename the build directory so that the csources from the git repo aren't
+      # overwritten
+      dMoveDir(state.nimLoc / "build", state.nimLoc / "build_old")
+      dCreateDir(state.nimLoc / "build")
+
+      state.progress.currentProc = runCSrcGen
+      state.progress.p = startMyProcess("koch", 
+          state.nimLoc, "csource")
+      state.cSrcGenProgressing("Running `koch csource`")
+
+  of runCSrcGen:
+    # Zip up the csources.
+    # -- Move the build directory to the zip location
+    var commitHash = state.progress.payload["after"].str
+    var folderName = makeCommitPath(state.platform, commitHash)
+    folderName.add("_csources")
+    var zipFile = folderName.addFileExt("zip")
+    dMoveDir(state.nimLoc / "build", state.zipLoc / folderName / "build")
+    # -- Move `build_old` to where it was.
+    dMoveDir(state.nimLoc / "build_old", state.nimLoc / "build")
+    # -- Copy build.sh and build.bat.
+    dCopyFile(state.nimLoc / "build.sh", state.zipLoc / folderName / "build.sh")
+    dCopyFile(state.nimLoc / "build.bat", state.zipLoc / folderName / "build.bat")
+    # -- ZIP!
+    if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
+    state.progress.currentProc = zipCSrc
+    state.progress.p = startMyProcess(findexe("zip"), 
+        state.zipLoc, "-r", zipFile, folderName)
+    state.cSrcGenProgressing("Creating csource archive")
+
+  of zipCSrc:
+    # Copy the .zip file
+    var commitHash = state.progress.payload["after"].str
+    var folderName = makeCommitPath(state.platform, commitHash)
+    folderName.add("_csources")
+    var zip = folderName.addFileExt("zip")
+    dCopyFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+
+    state.cSrcGenSucceeded()
 
 proc readAll(s: PStream): string =
   result = ""
@@ -422,6 +505,11 @@ proc checkProgress(state: var TState) =
                " failed. Generating docs failed! Exit code = ", exitCode)
           docgenFailed(state, $state.progress.currentProc &
                         " failed with exit code 1")
+        elif state.progress.currentProc <= zipCSrc:
+          echo(state.progress.currentProc,
+               " failed. Generating csources failed! Exit code = ", exitCode)
+          cSrcGenFailed(state, $state.progress.currentProc &
+                        " failed with exit code 1")
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
@@ -470,6 +558,7 @@ proc handleMessage(state: var TState, line: string) =
   if json.existsKey("payload"):
     # This should be a message from the "github" module
     # The payload object should have a `after` string.
+    # TODO: Make sure the ``ref`` is ``"ref": "refs/heads/master"``.
     assert(json["payload"].existsKey("after"))
     state.skipCSource = not fileInModified(json["payload"], "csources.zip")
     state.progress.payload = json["payload"]
