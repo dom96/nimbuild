@@ -250,9 +250,9 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
   # TODO: Use writeFile once Araq implements it.
   var f: TFile
-  if not open(f, dest / "readme2.txt"): OSError()
+  if not open(f, dest / "readme2.txt", fmWrite): OSError()
   f.write(buildReadme)
-  
+  f.close()
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
 
@@ -435,8 +435,9 @@ proc nextStage(state: var TState) =
               state.zipLoc / folderName / "gpl.html")
     # -- Build readme -- TODO: Use writeFile once Araq implements it.
     var f: TFile
-    if not open(f, state.zipLoc / folderName / "readme2.txt"): OSError()
+    if not open(f, state.zipLoc / folderName / "readme2.txt", fmWrite): OSError()
     f.write(buildReadme)
+    f.close()
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
