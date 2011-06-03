@@ -186,10 +186,12 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     if "builder" in state.modules:
       for module in items(state.modules):
         if module.name == "builder":
+          var commits = json["payload"]["commits"]
+          var latestCommit = json["payload"]["commits"][commits.len-1]
           # Add commit to database
           state.database.addCommit(json["payload"]["after"].str,
-              module.platform, json["payload"]["commits"][0]["message"].str,
-              json["payload"]["commits"][0]["author"]["username"].str)
+              module.platform, latestCommit["message"].str,
+              latestCommit["author"]["username"].str)
           
           module.sock.send($json & "\c\L")
   else:
@@ -229,17 +231,29 @@ proc joinUrl(u, u2: string): string =
     return u & u2
   else: return u & "/" & u2
 
-proc genPlatformResult(p: TCommit, platforms: HPlatformStatus): string =
-  result = ""
-  var weburl = joinUrl(p.websiteUrl, "commits/$1/nimrod_$2/" % 
-                                     [p.platform, p.hash[0..11]])
+proc getUrl(p: TCommit): tuple[weburl, logurl: string] =
+  var weburl = joinUrl(p.websiteUrl, "commits/nimrod_$1_$2/" % 
+                                     [p.hash[0..11], p.platform])
   var logurl = joinUrl(weburl, "log.txt")
+  return (weburl, logurl)
+
+proc genCssPath(state: TState): string =
+  # TODO: You might want to test this more thoroughly.
+  var reqPath = state.scgi.headers["REQUEST_URI"]
+  if reqPath.endswith("/"):
+    return ""
+  else: return reqPath & "/"
+
+proc genPlatformResult(p: TCommit, platforms: HPlatformStatus,
+                       cssPath: string): string =
+  result = ""
   case p.buildResult
   of bUnknown:
     if p.platform in platforms:
       if platforms[p.platform].hash == p.hash:
-        result.add("<img src=\"static/images/progress.gif\"/>")
-  of bFail: 
+        result.add("<img src=\"$1static/images/progress.gif\"/>" % [cssPath])
+  of bFail:
+    var (weburl, logurl) = getUrl(p)
     result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
   of bSuccess: result.add("ok")
   result.add(" ")
@@ -247,10 +261,13 @@ proc genPlatformResult(p: TCommit, platforms: HPlatformStatus): string =
   of tUnknown:
     if p.platform in platforms:
       if platforms[p.platform].hash == p.hash:
-        result.add("<img src=\"static/images/progress.gif\"/>")
+        result.add("<img src=\"$1static/images/progress.gif\"/>" % 
+                   [cssPath])
   of tFail:
+    var (weburl, logurl) = getUrl(p)
     result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
   of tSuccess:
+    var (weburl, logurl) = getUrl(p)
     var testresultsURL = joinUrl(weburl, "testresults.html")
     var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
@@ -292,13 +309,6 @@ proc genDownloadButtons(commits: seq[TPlatforms],
   result.add("<a href=\"$1\" class=\"$2\">$3Documentation</a>" %
              [joinUrl(websiteURL, "docs/lib.html"), "right active button",
               docSpan])
-
-proc genCssPath(state: TState): string =
-  # TODO: You might want to test this more thoroughly.
-  var reqPath = state.scgi.headers["REQUEST_URI"]
-  if reqPath.endswith("/"):
-    return ""
-  else: return reqPath & "/"
 
 include "index.html"
 # SCGI

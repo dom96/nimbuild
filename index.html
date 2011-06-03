@@ -32,7 +32,7 @@
         <tr>
         #for p in items(platforms):
           <td>${i[p].hash[0..11]}</td>
-          <td>${genPlatformResult(i[p], state.platforms)}</td> <!-- TODO: Get the desc in here -->
+          <td>${genPlatformResult(i[p], state.platforms, genCssPath(state))}</td> <!-- TODO: Get the desc in here -->
           <td>${i[p].username}</td>
           <td>${i[p].date}</td>
           <td>${i[p].commitMsg[0..60]}</td>

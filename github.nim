@@ -3,7 +3,8 @@ from cgi import URLDecode
 import types
 
 const
-  nimrodRepo = "https://github.com/dom96/log2html"
+  ghRepos = ["https://github.com/dom96/log2html",
+             "https://github.com/Araq/Nimrod"]
 
 type
   TState = object
@@ -69,7 +70,7 @@ proc handleRequest(state: var TState) {.procvar.} =
       if input.startswith("payload="):
         var inp2 = input.copy(8, input.len-1)
         var json = parseJson(URLDecode(inp2))
-        if json["repository"]["url"].str == nimrodRepo:
+        if json["repository"]["url"].str in ghRepos:
           sendBuild(state.sock, json)
         else:
           echo("Not our repo. WTF? Got repo url " & json["repository"]["url"].str)
