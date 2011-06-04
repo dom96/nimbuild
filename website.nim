@@ -306,8 +306,9 @@ proc genDownloadButtons(commits: seq[TPlatforms],
             result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
                        [cSrcUrl, "middle button", downloadSpan,
                         "csources-" & commit.hash[0..11]])
+          break
         inc(i)
-        break
+        
   
   result.add("<a href=\"$1\" class=\"$2\">$3Documentation</a>" %
              [joinUrl(websiteURL, "docs/lib.html"), "right active button",
