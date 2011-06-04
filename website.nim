@@ -119,11 +119,14 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     case TStatusEnum(json["status"].num)
     of sBuildFailure:
       assert(json.existsKey("desc"))
+      assert(json.existsKey("websiteURL"))
       state.setStatus(m.platform, sBuildFailure, json["desc"].str, hash)
       state.database.updateProperty(hash, m.platform, "buildResult", 
                                     $int(bFail))
       state.database.updateProperty(hash, m.platform, "failReason", 
                                     json["desc"].str)
+      state.database.updateProperty(hash, m.platform, "websiteURL", 
+                                    json["websiteURL"].str)
     of sBuildInProgress:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sBuildInProgress, json["desc"].str, hash)

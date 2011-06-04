@@ -109,6 +109,7 @@ proc buildProgressing(state: var TState, desc: string) =
   obj["status"] = newJInt(int(sBuildInProgress))
   obj["desc"] = newJString(desc)
   obj["hash"] = newJString(state.progress.payload["after"].str)
+  obj["websiteURL"] = newJString(state.websiteURL)
   
   state.sock.send($obj & "\c\L")
   echo(desc)
