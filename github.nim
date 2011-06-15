@@ -3,8 +3,7 @@ from cgi import URLDecode
 import types
 
 const
-  ghRepos = ["https://github.com/dom96/log2html",
-             "https://github.com/Araq/Nimrod"]
+  ghRepos = ["https://github.com/Araq/Nimrod"]
 
 type
   TState = object
@@ -63,8 +62,15 @@ proc handleRequest(state: var TState) {.procvar.} =
   var input = state.scgi.input
   var headers = state.scgi.headers
   
+  var hostname = ""
+  try:
+    hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
+  except EOS:
+    hostname = getCurrentExceptionMsg()
+  
+  echo("Received from IP: ", headers["REMOTE_ADDR"])
+  
   if headers["REQUEST_METHOD"] == "POST":
-    var hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
     echo(hostname)
     if hostname.endswith("github.com"):
       if input.startswith("payload="):
@@ -83,7 +89,6 @@ proc handleRequest(state: var TState) {.procvar.} =
       client.safeSend("Status: 403 Forbidden\c\L\c\L")
       client.close()
   else:
-    var hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
     echo("Received ", headers["REQUEST_METHOD"], " request from ", hostname)
     client.safeSend("Status: 404 Not Found\c\LContent-Type: text/html\c\L\c\L")
     client.safeSend("404 Not Found" & "\c\L")

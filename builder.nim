@@ -12,7 +12,7 @@ found at http://github.com/Araq/Nimrod
 
 type
   TCurrentProc = enum
-    pullProc, 
+    unstage, pullProc, 
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
@@ -98,6 +98,7 @@ proc buildFailed(state: var TState, desc: string) =
   obj["status"] = newJInt(int(sBuildFailure))
   obj["desc"] = newJString(desc)
   obj["hash"] = newJString(state.progress.payload["after"].str)
+  obj["websiteURL"] = newJString(state.websiteURL)
   
   state.sock.send($obj & "\c\L")
   echo(desc)
@@ -280,19 +281,24 @@ proc tallyTestResults(path: string):
 proc beginBuild(state: var TState) =
   ## This procedure starts the process of building nimrod. All it does
   ## is create a ``progress`` object, call ``buildProgressing()``,
-  ## execute the ``git pull`` command and open a commit specific log file.
+  ## execute the ``git checkout .`` command and open a commit specific log file.
   var commitHash = state.progress.payload["after"].str
   var folderName = makeCommitPath(state.platform, commitHash)
   dCreateDir(state.websiteLoc / "commits" / folderName)
   var logFile    = state.websiteLoc / "commits" / folderName / "log.txt"
   state.progress.commitFile = open(logFile, fmAppend)
   
-  state.progress.currentProc = pullProc
-  state.progress.p = startMyProcess(findExe("git"), state.nimLoc, "pull")
-  state.buildProgressing("Executing the git pull command.")
+  state.progress.currentProc = unstage
+  state.progress.p = startMyProcess(findExe("git"), state.nimLoc,
+                                    "checkout", ".")
+  state.buildProgressing("Unstaging changes.")
 
 proc nextStage(state: var TState) =
   case state.progress.currentProc
+  of unstage:
+    state.progress.currentProc = pullProc
+    state.progress.p = startMyProcess(findExe("git"), state.nimLoc, "pull")
+    state.buildProgressing("Executing the git pull command.")
   of pullProc:
     if not state.skipCSource:
       state.progress.currentProc = clean

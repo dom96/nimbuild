@@ -191,12 +191,16 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
         if module.name == "builder":
           var commits = json["payload"]["commits"]
           var latestCommit = json["payload"]["commits"][commits.len-1]
-          # Add commit to database
-          state.database.addCommit(json["payload"]["after"].str,
-              module.platform, latestCommit["message"].str,
-              latestCommit["author"]["username"].str)
+          # Check if commit already exists
+          if not state.database.commitExists(json["payload"]["after"].str):
+            # Add commit to database
+            state.database.addCommit(json["payload"]["after"].str,
+                module.platform, latestCommit["message"].str,
+                latestCommit["author"]["username"].str)
           
-          module.sock.send($json & "\c\L")
+            module.sock.send($json & "\c\L")
+          else:
+            echo("Commit already exists. Not rebuilding.")
   else:
     echo("[Fatal] Not implemented")
     assert(false)

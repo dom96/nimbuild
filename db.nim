@@ -117,6 +117,12 @@ proc getCommits*(database: TDb,
         platforms.add(P)
     result.add(commitPlatforms)
 
+proc commitExists*(database: TDb, commit: string): bool =
+  # TODO: Consider making the 'commits' list a set.
+  for c in items(database.r.lrange("commits", 0, -1)):
+    if c == commit: return true
+  return false
+
 proc `[]`*(cPlatforms: TPlatforms, p: string): TCommit =
   for c in items(cPlatforms):
     if c.platform == p:
