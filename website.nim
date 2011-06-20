@@ -127,6 +127,10 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
                                     json["desc"].str)
       state.database.updateProperty(hash, m.platform, "websiteURL", 
                                     json["websiteURL"].str)
+      # This implies that the tests failed too. If we leave this as unknown,
+      # the website will show the 'progress.gif' image.
+      state.database.updateProperty(hash, m.platform,
+          "testResult", $int(tFail))
     of sBuildInProgress:
       assert(json.existsKey("desc"))
       state.setStatus(m.platform, sBuildInProgress, json["desc"].str, hash)

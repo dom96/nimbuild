@@ -588,7 +588,7 @@ proc handleMessage(state: var TState, line: string) =
     # The payload object should have a `after` string.
     # TODO: Make sure the ``ref`` is ``"ref": "refs/heads/master"``.
     assert(json["payload"].existsKey("after"))
-    state.skipCSource = not fileInModified(json["payload"], "csources.zip")
+    state.skipCSource = not fileInModified(json["payload"], "build/csources.zip")
     state.progress.payload = json["payload"]
     echo("Bootstrapping!")
     state.beginBuild()
