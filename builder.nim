@@ -16,7 +16,7 @@ type
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
-    compileTester, runTests, # Testing
+    runTests, # Testing
     runDocGen, # Doc gen
     runCSrcGen, zipCSrc # csource gen
     
@@ -366,14 +366,8 @@ proc nextStage(state: var TState) =
     # --- Start of tests ---
     
     # Start test suite!
-    state.progress.currentProc = compileTester
-    state.progress.p = startMyProcess("bin/nimrod", 
-          state.nimLoc, "c", "tests/tester.nim")
-    testProgressing(state, "Compiling tests/tester.nim")
-    
-  of compileTester:
     state.progress.currentProc = runTests
-    state.progress.p = startMyProcess("tests/tester", state.nimLoc)
+    state.progress.p = startMyProcess("koch", state.nimLoc, "tests")
     testProgressing(state, "Testing nimrod build...")
     
   of runTests:
@@ -620,6 +614,7 @@ proc parseArgs(): string =
     showHelp()
 
 when isMainModule:
+  echo("Started builder: built at ", CompileDate, " ", CompileTime)
   var state = builder.open(parseArgs())
   var readSock: seq[TSocket] = @[]
   while True:

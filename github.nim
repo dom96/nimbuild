@@ -57,7 +57,7 @@ proc safeSend(client: TSocket, data: string) =
   except EOS:
     echo("[Warning] Got error from send(): ", OSErrorMsg())
 
-proc handleRequest(state: var TState) {.procvar.} =
+proc handleRequest(state: var TState) =
   var client = state.scgi.client
   var input = state.scgi.input
   var headers = state.scgi.headers
