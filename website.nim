@@ -249,7 +249,6 @@ proc getUrl(p: TCommit): tuple[weburl, logurl: string] =
   return (weburl, logurl)
 
 proc genCssPath(state: TState): string =
-  # TODO: You might want to test this more thoroughly.
   var reqPath = state.scgi.headers["REQUEST_URI"]
   if reqPath.endswith("/"):
     return ""
@@ -348,6 +347,7 @@ proc handleRequest(state: var TState) =
     client.close()
 
 when isMainModule:
+  echo("Started website: built at ", CompileDate, " ", CompileTime)
   var state = website.open()
   var readSocks: seq[TSocket] = @[]
   while True:

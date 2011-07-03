@@ -1,4 +1,10 @@
 #! stdtmpl | standard
+#proc genCommitUrl(hash: string): string =
+#  return joinUrl("https://github.com/Araq/Nimrod/commit/", hash)
+#end proc
+#proc genUserUrl(user: string): string = 
+#  return joinUrl("https://github.com/", user)
+#end proc
 #proc genHtml(state: TState): string =
 #  result = ""
 <!doctype html>
@@ -11,8 +17,6 @@
 <body>
   <div id="header">NimBuild - Nimrod's build farm.</div>
   <div id="content">
- 
-  
   <!-- Output information from database -->
   #var platforms: seq[string] = @[]
   #var commits = getCommits(state.database, platforms) 
@@ -31,9 +35,9 @@
       #for i in items(commits):
         <tr>
         #for p in items(platforms):
-          <td>${i[p].hash[0..11]}</td>
+          <td><a href="${genCommitUrl(i[p].hash)}">${i[p].hash[0..11]}</a></td>
           <td>${genPlatformResult(i[p], state.platforms, genCssPath(state))}</td> <!-- TODO: Get the desc in here -->
-          <td>${i[p].username}</td>
+          <td><a href="${genUserUrl(i[p].username)}">${i[p].username}</td>
           <td>${i[p].date}</td>
           <td>${i[p].commitMsg[0..60]}</td>
         #end for
