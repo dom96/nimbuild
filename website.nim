@@ -342,8 +342,12 @@ proc handleRequest(state: var TState) =
   echo(headers["HTTP_USER_AGENT"])
   echo(headers)
   if headers["REQUEST_METHOD"] == "GET":
-    var hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
-    echo("Got website request from ", hostname)
+    var hostname = ""
+    try:
+      hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
+    except EOS:
+      hostname = getCurrentExceptionMsg()
+    echo("Got website request from: ", hostname)
     var html = state.genHtml()
     client.safeSend("Status: 200 OK\c\LContent-Type: text/html\r\L\r\L")
     client.safeSend(html & "\c\L")
