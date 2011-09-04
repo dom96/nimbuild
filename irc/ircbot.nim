@@ -54,21 +54,19 @@ proc handleWebMessage(state: var TState, line: string) =
 
 proc processWebMessage(state: var TState) =
   var readSocks = @[state.sock]
-  if select(readSocks, 200) == 1 and readSocks.len == 0:
+  if select(readSocks, 1) == 1 and readSocks.len == 0:
     var line = ""
     if state.sock.recvLine(line):
       # Handle the message
       state.handleWebMessage(line)
     else:
       OSError()
-  
-
 
 var state = open() # Connect to the website.
 
 # Connect to the irc server.
-state.ircClient = irc(ircServer, joinChans = joinChans)
-state.ircClient.connect()
+state.ircClient = irc(ircServer, nick = "NimBot", user = "NimBot",
+                      joinChans = joinChans)
 
 while True:
   processWebMessage(state)
@@ -79,4 +77,5 @@ while True:
     of EvDisconnected:
       state.ircClient.connect()
     of EvMsg:
+      echo("< ", event.raw)
       # TODO: ...
