@@ -21,7 +21,7 @@ type
     connected: bool
     platform: string
 
-proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5001), 
+proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5001),
           databasePort = dbPort): TState =
   result.sock = socket()
   if result.sock == InvalidSocket: OSError()
@@ -121,11 +121,11 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
       assert(json.existsKey("desc"))
       assert(json.existsKey("websiteURL"))
       state.setStatus(m.platform, sBuildFailure, json["desc"].str, hash)
-      state.database.updateProperty(hash, m.platform, "buildResult", 
+      state.database.updateProperty(hash, m.platform, "buildResult",
                                     $int(bFail))
-      state.database.updateProperty(hash, m.platform, "failReason", 
+      state.database.updateProperty(hash, m.platform, "failReason",
                                     json["desc"].str)
-      state.database.updateProperty(hash, m.platform, "websiteURL", 
+      state.database.updateProperty(hash, m.platform, "websiteURL",
                                     json["websiteURL"].str)
       # This implies that the tests failed too. If we leave this as unknown,
       # the website will show the 'progress.gif' image.
@@ -137,9 +137,9 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
     of sBuildSuccess:
       assert(json.existsKey("websiteURL"))
       state.setStatus(m.platform, sBuildSuccess, "", hash)
-      state.database.updateProperty(hash, m.platform, "buildResult", 
+      state.database.updateProperty(hash, m.platform, "buildResult",
                                     $int(bSuccess))
-      state.database.updateProperty(hash, m.platform, "websiteURL", 
+      state.database.updateProperty(hash, m.platform, "websiteURL",
                                     json["websiteURL"].str)
     of sTestFailure:
       assert(json.existsKey("desc"))
@@ -205,6 +205,12 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
             module.sock.send($json & "\c\L")
           else:
             echo("Commit already exists. Not rebuilding.")
+    # Send this message to the "irc" module.
+    if "irc" in state.modules:
+      for module in items(state.modules):
+        if module.name == "irc":
+          module.sock.send($json & "\c\L")
+
   else:
     echo("[Fatal] Not implemented")
     assert(false)
@@ -212,7 +218,7 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
 proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
   var disconnect: seq[int] = @[] # Modules which disconnected
   for i in 0..state.modules.len()-1:
-    var m = state.modules[i] 
+    var m = state.modules[i]
     if m.sock notin readSocks:
       var line = ""
       if recvLine(m.sock, line):

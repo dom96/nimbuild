@@ -2,7 +2,7 @@ import os
 # TODO: Rename this module to ``utils``
 type
   TStatusEnum* = enum
-    sUnknown, sBuildFailure, sBuildInProgress, sBuildSuccess, 
+    sUnknown, sBuildFailure, sBuildInProgress, sBuildSuccess,
     sTestFailure, sTestInProgress, sTestSuccess, # ORDER MATTERS!
     sDocGenFailure, sDocGenInProgress, sDocGenSuccess,
     sCSrcGenFailure, sCSrcGenInProgress, sCSrcGenSuccess
@@ -18,7 +18,7 @@ proc initStatus*(): TStatus =
   result.hash = ""
 
 proc isInProgress*(status: TStatusEnum): bool =
-  return status in {sBuildInProgress, sTestInProgress, sDocGenInProgress, 
+  return status in {sBuildInProgress, sTestInProgress, sDocGenInProgress,
                     sCSrcGenInProgress}
 
 proc `$`*(status: TStatusEnum): string =

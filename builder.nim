@@ -12,7 +12,7 @@ found at http://github.com/Araq/Nimrod
 
 type
   TCurrentProc = enum
-    unstage, pullProc, 
+    unstage, pullProc,
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
@@ -51,7 +51,7 @@ proc parseConfig(state: var TState, path: string) =
     while True:
       var n = next(p)
       case n.kind
-      of cfgEof: 
+      of cfgEof:
         break
       of cfgSectionStart:
         raise newException(EInvalidValue, "Unknown section: " & n.section)
@@ -84,7 +84,7 @@ proc parseConfig(state: var TState, path: string) =
           inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count <= 6: 
+    if count <= 6:
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
@@ -238,7 +238,7 @@ proc dCreateDir(s: string) =
   echo("[INFO] Creating directory ", s)
   createDir(s)
 
-proc dMoveDir(s: string, s1: string) =  
+proc dMoveDir(s: string, s1: string) =
   echo("[INFO] Moving directory ", s, " to ", s1)
   copyDir(s, s1)
   removeDir(s)
@@ -259,13 +259,13 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyDir(nimLoc / "lib", dest / "lib")
 
 # TODO: Make this a template?
-proc tally3(obj: PJsonNode, name: string, 
+proc tally3(obj: PJsonNode, name: string,
             total, passed, skipped: var biggestInt) =
   total = total + obj[name]["total"].num
   passed = passed + obj[name]["passed"].num
   skipped = skipped + obj[name]["skipped"].num
 
-proc tallyTestResults(path: string): 
+proc tallyTestResults(path: string):
     tuple[total, passed, skipped, failed: biggestInt] =
   var f = readFile(path)
   var obj = parseJson(f)
@@ -302,18 +302,18 @@ proc nextStage(state: var TState) =
   of pullProc:
     if not state.skipCSource:
       state.progress.currentProc = clean
-      state.progress.p = startMyProcess("koch", 
+      state.progress.p = startMyProcess("koch",
           state.nimLoc, "clean")
       state.buildProgressing("Executing koch clean")
     else:
       # Same code as in ``of buildSh:``
       state.progress.currentProc = compileKoch
-      state.progress.p = startMyProcess("bin/nimrod", 
+      state.progress.p = startMyProcess("bin/nimrod",
           state.nimLoc, "c", "koch.nim")
       state.buildProgressing("Compiling koch.nim")
   of clean:
     state.progress.currentProc = unzipCSources
-    state.progress.p = startMyProcess(findExe("unzip"), 
+    state.progress.p = startMyProcess(findExe("unzip"),
         state.nimLoc / "build", "csources.zip")
     state.buildProgressing("Executing unzip")
   of unzipCSources:
@@ -323,17 +323,17 @@ proc nextStage(state: var TState) =
     state.buildProgressing("Compiling C sources")
   of buildSh:
     state.progress.currentProc = compileKoch
-    state.progress.p = startMyProcess("bin/nimrod", 
+    state.progress.p = startMyProcess("bin/nimrod",
         state.nimLoc, "c", "koch.nim")
     state.buildProgressing("Compiling koch.nim")
   of compileKoch:
     state.progress.currentProc = bootNimDebug
-    state.progress.p = startMyProcess("koch", 
+    state.progress.p = startMyProcess("koch",
         state.nimLoc, "boot")
     state.buildProgressing("Bootstrapping Nimrod")
   of bootNimDebug:
     state.progress.currentProc = bootNim
-    state.progress.p = startMyProcess("koch", 
+    state.progress.p = startMyProcess("koch",
         state.nimLoc, "boot", "-d:release")
     state.buildProgressing("Bootstrapping Nimrod in release mode")
   of bootNim:
@@ -349,7 +349,7 @@ proc nextStage(state: var TState) =
     # Remove the .zip in case they already exist...
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipNim
-    state.progress.p = startMyProcess(findexe("zip"), 
+    state.progress.p = startMyProcess(findexe("zip"),
         state.zipLoc, "-r", zipFile, folderName)
     state.buildProgressing("Creating archive - zip")
   
@@ -383,7 +383,7 @@ proc nextStage(state: var TState) =
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
     
-    var (total, passed, skipped, failed) = 
+    var (total, passed, skipped, failed) =
         tallyTestResults(state.nimLoc / "testresults.json")
     
     testSucceeded(state, total, passed, skipped, failed)
@@ -395,7 +395,7 @@ proc nextStage(state: var TState) =
       dCreateDir(state.nimLoc / "web" / "upload")
       dCreateDir(state.websiteLoc / "docs")
       state.progress.currentProc = runDocGen
-      state.progress.p = startMyProcess("koch", 
+      state.progress.p = startMyProcess("koch",
                 state.nimLoc, "web")
       docgenProgressing(state, "Running koch web...")
   of runDocGen:
@@ -412,7 +412,7 @@ proc nextStage(state: var TState) =
       dCreateDir(state.nimLoc / "build")
 
       state.progress.currentProc = runCSrcGen
-      state.progress.p = startMyProcess("koch", 
+      state.progress.p = startMyProcess("koch",
           state.nimLoc, "csource")
       state.cSrcGenProgressing("Running `koch csource`")
 
@@ -430,9 +430,9 @@ proc nextStage(state: var TState) =
     dCopyFile(state.nimLoc / "build.sh", state.zipLoc / folderName / "build.sh")
     dCopyFile(state.nimLoc / "build.bat", state.zipLoc / folderName / "build.bat")
     # -- License
-    dCopyFile(state.nimLoc / "copying.txt", 
+    dCopyFile(state.nimLoc / "copying.txt",
               state.zipLoc / folderName / "copying.txt")
-    dCopyFile(state.nimLoc / "gpl.html", 
+    dCopyFile(state.nimLoc / "gpl.html",
               state.zipLoc / folderName / "gpl.html")
     # -- Build readme -- TODO: Use writeFile once Araq implements it.
     var f: TFile
@@ -442,7 +442,7 @@ proc nextStage(state: var TState) =
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
-    state.progress.p = startMyProcess(findexe("zip"), 
+    state.progress.p = startMyProcess(findexe("zip"),
         state.zipLoc, "-r", zipFile, folderName)
     state.cSrcGenProgressing("Creating csource archive")
 
@@ -480,7 +480,7 @@ proc checkProgress(state: var TState) =
     var readP = @[p]
     if select(readP) == 1 and readP.len == 0:
       var output = p.outputStream.readAll()
-      echo("Got output from ", state.progress.currentProc, ". Len = ", 
+      echo("Got output from ", state.progress.currentProc, ". Len = ",
            output.len)
       
       # TODO: If you get more problems with process exit not being detected by
@@ -503,7 +503,7 @@ proc checkProgress(state: var TState) =
       else:
         var output = p.outputStream.readAll()
         echo("Got output (after termination) from ",
-             state.progress.currentProc, ". Len = ", 
+             state.progress.currentProc, ". Len = ",
              output.len)
         var s = ""
         if output.len() > 0:
@@ -560,7 +560,7 @@ proc open(configPath: string, port: TPort = TPort(5123)): TState =
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
   else:
-    raise newException(EInvalidValue, 
+    raise newException(EInvalidValue,
                        "Hub didn't accept me. Waited 1.5 seconds.")
   
   # Open log file
