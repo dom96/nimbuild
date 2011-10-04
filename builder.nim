@@ -230,6 +230,11 @@ proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
   copyFile(src, dest)
 
+proc dMoveFile(src, dest: string) =
+  echo("[INFO] Moving ", src, " to ", dest)
+  copyFile(src, dest)
+  removeFile(src)
+
 proc dCopyDir(src, dest: string) =
   echo("[INFO] Copying directory ", src, " to ", dest)
   copyDir(src, dest)
@@ -243,6 +248,10 @@ proc dMoveDir(s: string, s1: string) =
   copyDir(s, s1)
   removeDir(s)
 
+proc dRemoveDir(s: string) =
+  echo("[INFO] Removing directory ", s)
+  removeDir(s)
+
 proc copyForArchive(nimLoc, dest: string) =
   dCreateDir(dest / "bin")
   var nimBin = "bin" / addFileExt("nimrod", ExeExt)
@@ -250,11 +259,7 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyFile(nimLoc / "readme.txt", dest / "readme.txt")
   dCopyFile(nimLoc / "copying.txt", dest / "copying.txt")
   dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
-  # TODO: Use writeFile once Araq implements it.
-  var f: TFile
-  if not open(f, dest / "readme2.txt", fmWrite): OSError()
-  f.write(buildReadme)
-  f.close()
+  writeFile(dest / "readme2.txt", buildReadme)
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
 
@@ -346,7 +351,7 @@ proc nextStage(state: var TState) =
     # TODO: This will block :(
     copyForArchive(state.nimLoc, dir)
     
-    # Remove the .zip in case they already exist...
+    # Remove the .zip in case it already exists...
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipNim
     state.progress.p = startMyProcess(findexe("zip"),
@@ -359,7 +364,7 @@ proc nextStage(state: var TState) =
     var fileName = makeCommitPath(state.platform, commitHash)
     var zip = addFileExt(fileName, "zip")
     #dCreateDir(state.websiteLoc / "commits" / state.platform)
-    dCopyFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
     
     buildSucceeded(state)
   
@@ -434,11 +439,7 @@ proc nextStage(state: var TState) =
               state.zipLoc / folderName / "copying.txt")
     dCopyFile(state.nimLoc / "gpl.html",
               state.zipLoc / folderName / "gpl.html")
-    # -- Build readme -- TODO: Use writeFile once Araq implements it.
-    var f: TFile
-    if not open(f, state.zipLoc / folderName / "readme2.txt", fmWrite): OSError()
-    f.write(buildReadme)
-    f.close()
+    writeFile(state.zipLoc / folderName / "readme2.txt", buildReadme)
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
@@ -450,9 +451,11 @@ proc nextStage(state: var TState) =
     # Copy the .zip file
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
+    dRemoveDir(folderName) # Remove the pre-zipped folder with the binaries.
     folderName.add("_csources")
+    dRemoveDir(folderName) # Remove the pre-zipped folder with the C sources.
     var zip = folderName.addFileExt("zip")
-    dCopyFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
 
     state.cSrcGenSucceeded()
 
