@@ -10,33 +10,40 @@ type
     sock: TSocket
     scgi: TScgiState
     platform: string
-    
+
+    hubPort: TPort
+
 # Communication
 
 proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): TState =
-  result.sock = socket()
-  result.sock.connect("127.0.0.1", port)
-  result.platform = "linux-x86"
+proc hubConnect(state: var TState) =
+  state.sock = socket()
+  state.sock.connect("127.0.0.1", state.hubPort)
+  state.platform = "linux-x86"
   
   # Send greeting
   var obj = newJObject()
   obj["name"] = newJString("github")
-  obj["platform"] = newJString(result.platform)
-  result.sock.send($obj & "\c\L")
+  obj["platform"] = newJString(state.platform)
+  state.sock.send($obj & "\c\L")
   # Wait for reply.
-  var readSocks = @[result.sock]
+  var readSocks = @[state.sock]
   if select(readSocks, 1500) == 1 and readSocks.len == 0:
     var line = ""
-    assert result.sock.recvLine(line)
+    assert state.sock.recvLine(line)
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
   else:
-    raise newException(EInvalidValue, 
+    raise newException(EInvalidValue,
                        "Hub didn't accept me. Waited 1.5 seconds.")
+
+proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): TState =
+  result.hubPort = port
+
+  result.hubConnect()
   
   # Open scgi stuff
   open(result.scgi, scgiPort)
@@ -107,9 +114,20 @@ when isMainModule:
       if state.sock.recvLine(line):
         state.handleMessage(line)
       else:
-        # TODO: Try reconnecting.
-        OSError()
-    
+        echo("Disconnected from hub: ", OSErrorMsg())
+        var connected = false
+        while (not connected):
+          echo("Reconnecting...")
+          try:
+            connected = true
+            state.hubConnect()
+          except:
+            echo(getCurrentExceptionMsg())
+            connected = false
+
+          echo("Waiting 5 seconds...")
+          sleep(5000)
+            
     #state.checkProgress()
     
     

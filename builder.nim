@@ -40,6 +40,9 @@ type
     docgen: bool ## Determines whether to generate docs.
     csourceGen: bool ## Determines whether to generate csources.
     platform: string
+    hubAddr: string
+    hubPort: int
+    hubPass: string
 
 # Configuration
 proc parseConfig(state: var TState, path: string) =
@@ -78,17 +81,27 @@ proc parseConfig(state: var TState, path: string) =
           inc(count)
         of "docgen": # -- Optional
           state.docgen = if normalize(n.value) == "true": true else: false
-          inc(count)
         of "csourcegen":
           state.csourceGen = if normalize(n.value) == "true": true else: false
+        of "hubaddr":
+          state.hubAddr = n.value
           inc(count)
+        of "hubport":
+          state.hubPort = parseInt(n.value)
+          inc(count)
+        of "hubpass":
+          state.hubPass = n.value
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count <= 6:
+    if count < 8:
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
+
+proc defaultState(): TState =
+  result.hubAddr = "127.0.0.1"
+  result.hubPass = ""
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: var TState, desc: string) =
@@ -541,31 +554,37 @@ proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc open(configPath: string, port: TPort = TPort(5123)): TState =
-  # Get config
-  parseConfig(result, configPath)
-  if not existsDir(result.nimLoc):
-    quit(result.nimLoc & " does not exist!", quitFailure)
-  
-  result.sock = socket()
-  result.sock.connect("127.0.0.1", port)
+proc hubConnect(state: var TState) =
+  state.sock = socket()
+  state.sock.connect(state.hubAddr, TPort(state.hubPort))
   
   # Send greeting
   var obj = newJObject()
   obj["name"] = newJString("builder")
-  obj["platform"] = newJString(result.platform)
-  result.sock.send($obj & "\c\L")
+  obj["platform"] = newJString(state.platform)
+  if state.hubPass != "": obj["pass"] = newJString(state.hubPass)
+  state.sock.send($obj & "\c\L")
   # Wait for reply.
-  var readSocks = @[result.sock]
+  var readSocks = @[state.sock]
   if select(readSocks, 1500) == 1 and readSocks.len == 0:
     var line = ""
-    assert result.sock.recvLine(line)
+    assert state.sock.recvLine(line)
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
   else:
     raise newException(EInvalidValue,
                        "Hub didn't accept me. Waited 1.5 seconds.")
+
+proc open(configPath: string): TState =
+  result = defaultState()
+  # Get config
+  parseConfig(result, configPath)
+  if not existsDir(result.nimLoc):
+    quit(result.nimLoc & " does not exist!", quitFailure)
   
+  # Connect to the hub
+  result.hubConnect()
+
   # Open log file
   result.logFile = open(result.logLoc, fmAppend)
   
@@ -589,6 +608,12 @@ proc handleMessage(state: var TState, line: string) =
     state.progress.payload = json["payload"]
     echo("Bootstrapping!")
     state.beginBuild()
+  if json.existsKey("ping"):
+    # Website is making sure that the connection is alive.
+    # All we do is change the "ping" to "pong" and reply.
+    json["pong"] = json["ping"]
+    json.delete("ping")
+    state.sock.send($json & "\c\L")
 
 proc showHelp() =
   const help = """Usage: builder [options] configFile
@@ -627,8 +652,19 @@ when isMainModule:
       if state.sock.recvLine(line):
         state.handleMessage(line)
       else:
-        # TODO: Try reconnecting.
-        OSError()
+        echo("Disconnected from hub: ", OSErrorMsg())
+        var connected = false
+        while (not connected):
+          echo("Reconnecting...")
+          try:
+            connected = true
+            state.hubConnect()
+          except:
+            echo(getCurrentExceptionMsg())
+            connected = false
+
+          echo("Waiting 5 seconds...")
+          sleep(5000)
     
     state.checkProgress()
   

@@ -5,6 +5,7 @@ type
   TState = object
     sock: TSocket
     ircClient: TIRC
+    hubPort: TPort
 
 const 
   ircServer = "irc.freenode.net"
@@ -14,26 +15,35 @@ proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc open(port: TPort = TPort(5123)): TState =
-  result.sock = socket()
-  result.sock.connect("127.0.0.1", port)
+proc hubConnect(state: var TState) =
+  state.sock = socket()
+  state.sock.connect("127.0.0.1", state.hubPort)
 
   # Send greeting
   var obj = newJObject()
   obj["name"] = newJString("irc")
   obj["platform"] = newJString("?")
-  result.sock.send($obj & "\c\L")
+  state.sock.send($obj & "\c\L")
 
   # Wait for reply.
-  var readSocks = @[result.sock]
+  var readSocks = @[state.sock]
   if select(readSocks, 1500) == 1 and readSocks.len == 0:
     var line = ""
-    assert result.sock.recvLine(line)
+    assert state.sock.recvLine(line)
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
   else:
     raise newException(EInvalidValue,
                        "Hub didn't accept me. Waited 1.5 seconds.")
+
+proc open(port: TPort = TPort(5123)): TState =
+  result.hubPort = port
+  result.hubConnect()
+
+  # Connect to the irc server.
+  result.ircClient = irc(ircServer, nick = "NimBot", user = "NimBot",
+                         joinChans = joinChans)
+
 
 proc handleWebMessage(state: var TState, line: string) =
   echo("Got message from hub: " & line)
@@ -60,13 +70,21 @@ proc processWebMessage(state: var TState) =
       # Handle the message
       state.handleWebMessage(line)
     else:
-      OSError()
+      echo("Disconnected from hub: ", OSErrorMsg())
+      var connected = false
+      while (not connected):
+        echo("Reconnecting...")
+        try:
+          connected = true
+          state.hubConnect()
+        except:
+          echo(getCurrentExceptionMsg())
+          connected = false
 
-var state = open() # Connect to the website.
+        echo("Waiting 5 seconds...")
+        sleep(5000)
 
-# Connect to the irc server.
-state.ircClient = irc(ircServer, nick = "NimBot", user = "NimBot",
-                      joinChans = joinChans)
+var state = open() # Connect to the website and the IRC server.
 
 while True:
   processWebMessage(state)
@@ -78,4 +96,4 @@ while True:
       state.ircClient.connect()
     of EvMsg:
       echo("< ", event.raw)
-      # TODO: ...
+      # TODO: ... commands

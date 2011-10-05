@@ -1,5 +1,5 @@
 ## This is the SCGI Website and the hub.
-import sockets, json, strutils, os, scgi, strtabs, times
+import sockets, json, strutils, os, scgi, strtabs, times, streams, parsecfg
 import types, db
 
 const
@@ -14,27 +14,73 @@ type
     scgi: TScgiState
     database: TDb
     platforms: HPlatformStatus
+    password: string ## The password that foreign modules need to be accepted.
+    bindAddr: string
+    bindPort: int
+    scgiPort: int
 
   TModule = object
     name: string
     sock: TSocket ## Client socket
     connected: bool
     platform: string
+    lastPong: float
+    pinged: bool # whether we are waiting for a pong from the module.
+    ping: float # in seconds
 
-proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5001),
-          databasePort = dbPort): TState =
+proc parseConfig(state: var TState, path: string) =
+  var f = newFileStream(path, fmRead)
+  if f != nil:
+    var p: TCfgParser
+    open(p, f, path)
+    var count = 0
+    while True:
+      var n = next(p)
+      case n.kind
+      of cfgEof:
+        break
+      of cfgSectionStart:
+        raise newException(EInvalidValue, "Unknown section: " & n.section)
+      of cfgKeyValuePair, cfgOption:
+        case normalize(n.key)
+        of "bindaddr":
+          state.bindAddr = n.value
+          inc(count)
+        of "bindport":
+          state.bindPort = parseInt(n.value)
+          inc(count)
+        of "scgiport":
+          state.scgiPort = parseInt(n.value)
+          inc(count)
+        of "password":
+          state.password = n.value
+          inc(count)
+      of cfgError:
+        raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
+    if count < 4:
+      quit("Not all settings have been specified in the .ini file", quitFailure)
+    close(p)
+  else:
+    quit("Cannot open configuration file: " & path, quitFailure)
+
+proc open(configPath: string, databasePort = dbPort): TState =
+  parseConfig(result, configPath)
+
   result.sock = socket()
   if result.sock == InvalidSocket: OSError()
-  result.sock.bindAddr(TPort(5123), "localhost")
+  result.sock.bindAddr(TPort(result.bindPort), result.bindAddr)
   result.sock.listen()
   result.modules = @[]
   result.platforms = @[]
-
+  
   # Open scgi instance
-  result.scgi.open(scgiPort)
+  result.scgi.open(TPort(result.scgiPort))
   
   # Connect to the database
-  result.database = open("localhost", databasePort)
+  try:
+    result.database = db.open("localhost", databasePort)
+  except EOS:
+    quit("Couldn't connect to redis: " & OSErrorMsg())
 
 # Modules
 proc populateReadSocks(state: var TState): seq[TSocket] =
@@ -55,21 +101,38 @@ proc contains(platforms: HPlatformStatus,
     if platform == p:
       return True
 
-proc parseGreeting(state: var TState, client: var TSocket, line: string) =
+proc parseGreeting(state: var TState, client: var TSocket,
+                   IPAddr: string, line: string): bool =
   # { "name": "modulename" }
   var json = parseJson(line)
+  if IPAddr != "127.0.0.1":
+    # Check for password
+    var fail = true
+    if json.existsKey("pass"):
+      if json["pass"].str == state.password:
+        fail = false
+      else:
+        echo("Got incorrect password: ", json["pass"].str)
+
+    if fail: return false
+
   var module: TModule
   module.name = json["name"].str
   module.sock = client
   module.platform = json["platform"].str
   echo(module.name, " connected.")
-  state.modules.add(module)
   
   # Only add this module platform to platforms if it's a `builder`, and
   # if platform doesn't already exist.
   if module.name == "builder":
     if module.platform notin state.platforms:
       state.platforms.add((module.platform, initStatus()))
+    else:
+      echo("Platform(", module.platform, ") already exists.")
+      return False
+
+  state.modules.add(module)
+  return True
 
 proc `[]`*(ps: HPlatformStatus,
            platform: string): TStatus =
@@ -108,8 +171,9 @@ proc setStatus(state: var TState, p: string, status: TStatusEnum,
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
 
-proc parseMessage(state: var TState, m: TModule, line: string) =
+proc parseMessage(state: var TState, mIndex: int, line: string) =
   var json = parseJson(line)
+  var m = state.modules[mIndex]
   if json.existsKey("status"):
     # { "status": -1, desc: "...", platform: "...", hash: "123456" }
     assert(json.existsKey("hash"))
@@ -210,6 +274,11 @@ proc parseMessage(state: var TState, m: TModule, line: string) =
       for module in items(state.modules):
         if module.name == "irc":
           module.sock.send($json & "\c\L")
+  elif json.existsKey("pong"):
+    # Module received PING and replied with PONG.
+    state.modules[mIndex].pinged = false
+    state.modules[mIndex].ping = epochTime() - json["ping"].str.parseFloat()
+    state.modules[mIndex].lastPong = epochTime()
 
   else:
     echo("[Fatal] Not implemented")
@@ -223,9 +292,10 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
       var line = ""
       if recvLine(m.sock, line):
         echo("Got line from $1: $2" % [m.name, line])
-        state.parseMessage(m, line)
+        state.parseMessage(i, line)
       else:
         # Assume the module disconnected
+        m.sock.close()
         echo(m.name, " disconnected.")
         disconnect.add(i)
         # Remove from platforms if this is a builder.
@@ -241,6 +311,29 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
     state.modules.delete(i-removed)
     inc(removed)
 
+proc handlePings(state: var TState) =
+  var remove: seq[int] = @[] # Modules that have timed out.
+  for i in 0..state.modules.len:
+    var module = state.modules[i]
+    if module.name == "builder":
+      if (epochTime() - module.lastPong) >= 100.0:
+        var obj = newJObject()
+        obj["ping"] = newJString(formatFloat(epochTime()))
+        module.sock.send($obj & "\c\L")
+    
+      if module.pinged and (epochTime() - module.lastPong) >= 25.0:
+        echo("Module has not replied to PING. Assuming timeout!!!")
+        remove.add(i)
+
+  # Remove the modules that have timed out.
+  var removed = 0
+  for i in items(remove):
+    var module = state.modules[i-removed]
+    state.modules.delete(i-removed)
+    module.sock.close()
+    echo(module.name, "(", module.platform, ")", " killed")
+    inc(removed)
+
 # HTML Generation
 
 proc joinUrl(u, u2: string): string =
@@ -249,7 +342,7 @@ proc joinUrl(u, u2: string): string =
   else: return u & "/" & u2
 
 proc getUrl(p: TCommit): tuple[weburl, logurl: string] =
-  var weburl = joinUrl(p.websiteUrl, "commits/nimrod_$1_$2/" % 
+  var weburl = joinUrl(p.websiteUrl, "commits/nimrod_$1_$2/" %
                                      [p.hash[0..11], p.platform])
   var logurl = joinUrl(weburl, "log.txt")
   return (weburl, logurl)
@@ -357,30 +450,42 @@ proc handleRequest(state: var TState) =
     client.close()
 
 when isMainModule:
+  var configPath = ""
+  if paramCount() > 0:
+    configPath = paramStr(1)
+    echo("Loading config ", configPath, "...")
+  else:
+    quit("Usage: ./website configPath")
+
   echo("Started website: built at ", CompileDate, " ", CompileTime)
-  var state = website.open()
+
+  var state = website.open(configPath)
   var readSocks: seq[TSocket] = @[]
   while True:
     try:
       if state.scgi.next(200):
         handleRequest(state)
     except EScgi:
-      echo("Got erroneous message")
+      echo("Got erroneous message from web server")
     
     readSocks = state.populateReadSocks()
     if select(readSocks, 10) != 0:
       if state.sock notin readSocks:
         # Connection from a module
-        var client = state.sock.accept()
+        var (client, IPAddr) = state.sock.acceptAddr()
         if client == InvalidSocket: OSError()
         var clientS = @[client]
         # Wait 1.5 seconds for a greeting.
         if select(clientS, 1500) == 1:
           var line = ""
           assert client.recvLine(line)
-          state.parseGreeting(client, line)
-          # Reply to the module
-          client.send("{ \"reply\": \"OK\" }\c\L")
+          if state.parseGreeting(client, IPAddr, line):
+            # Reply to the module
+            client.send("{ \"reply\": \"OK\" }\c\L")
+          else:
+            client.send("{ \"reply\": \"FAIL\" }\c\L")
+            echo("Rejected ", IPAddr)
+            client.close()
       else:
         # Message from a module
         state.handleModuleMsg(readSocks)
