@@ -376,7 +376,8 @@ proc nextStage(state: var TState) =
     var commitHash = state.progress.payload["after"].str
     var fileName = makeCommitPath(state.platform, commitHash)
     var zip = addFileExt(fileName, "zip")
-    #dCreateDir(state.websiteLoc / "commits" / state.platform)
+    # Remove the pre-zipped folder with the binaries.
+    dRemoveDir(state.zipLoc / fileName)
     dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
     
     buildSucceeded(state)
@@ -464,9 +465,10 @@ proc nextStage(state: var TState) =
     # Copy the .zip file
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
-    dRemoveDir(folderName) # Remove the pre-zipped folder with the binaries.
+
     folderName.add("_csources")
-    dRemoveDir(folderName) # Remove the pre-zipped folder with the C sources.
+    # Remove the pre-zipped folder with the C sources.
+    dRemoveDir(state.zipLoc / folderName)
     var zip = folderName.addFileExt("zip")
     dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
 
