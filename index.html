@@ -18,9 +18,9 @@
   <div id="header">NimBuild - Nimrod's build farm.</div>
   <div id="content">
   <!-- Output information from database -->
-  #var platforms: seq[string] = @[]
-  #var commits = getCommits(state.database, platforms) 
-  ${genDownloadButtons(commits, platforms)}
+  #var platforms: seq[string] = @[] # Every platform, from every commit.
+  #var entries = getCommits(state.database, platforms) 
+  ${genDownloadButtons(entries, platforms)}
   #if platforms.len() > 0:
     <table>
       <tr>
@@ -32,15 +32,17 @@
         <th>date</th>
         <th>message</th>
       </tr>
-      #for i in items(commits):
+      #for c, pls in items(entries):
         <tr>
+          <td><a href="${genCommitUrl(c.hash)}">${c.hash[0..11]}</a></td>
         #for p in items(platforms):
-          <td><a href="${genCommitUrl(i[p].hash)}">${i[p].hash[0..11]}</a></td>
-          <td>${genPlatformResult(i[p], state.platforms, genCssPath(state))}</td> <!-- TODO: Get the desc in here -->
-          <td><a href="${genUserUrl(i[p].username)}">${i[p].username}</td>
-          <td>${i[p].date}</td>
-          <td>${i[p].commitMsg[0..60]}</td>
+          <td>${genPlatformResult(c, pls[p],state.platforms, genCssPath(state))}
+          </td>
         #end for
+          <td><a href="${genUserUrl(c.username)}">${c.username}</td>
+          <td>${c.date}</td>
+          <td>${c.commitMsg[0..60]}</td>
+        
         </tr>
       #end for
     </table>

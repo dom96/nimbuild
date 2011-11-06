@@ -51,4 +51,4 @@ proc `$`*(status: TStatusEnum): string =
     return "unknown"
     
 proc makeCommitPath*(platform, hash: string): string =
-  return "nimrod_" & hash.copy(0, 11) & "_" & platform # 11 Chars.
+  return platform / hash.copy(0, 11)  # 11 Chars.

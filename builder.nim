@@ -1,5 +1,6 @@
 # This will build nimrod using the specified settings.
-import osproc, json, sockets, os, streams, parsecfg, parseopt, strutils
+import
+  osproc, json, sockets, os, streams, parsecfg, parseopt, strutils, ftpclient
 import types
 
 const
@@ -16,7 +17,9 @@ type
     clean, unzipCSources, buildSh, ## Compiling from C Sources
     compileKoch, bootNimDebug, bootNim, ## Bootstrapping
     zipNim, # archive
+    uploadNim, # FTP Upload
     runTests, # Testing
+    uploadTests, # FTP Upload #2
     runDocGen, # Doc gen
     runCSrcGen, zipCSrc # csource gen
     
@@ -30,10 +33,10 @@ type
     sock: TSocket
     status: TStatus ## Outcome of the build
     progress: TProgress ## Current progress
+    ftp: TFTPClient
     skipCSource: bool ## Skip the process of building csources
     nimLoc: string ## Location of the nimrod repo
     websiteLoc: string ## Location of the website.
-    websiteURL: string ## URL of the website
     logLoc: string ## Location of the logs for this module.
     logFile: TFile
     zipLoc: string ## Location of where to copy the files for zipping.
@@ -43,6 +46,12 @@ type
     hubAddr: string
     hubPort: int
     hubPass: string
+    
+    ftpUser: string
+    ftpPass: string
+    ftpUploadDir: string
+  
+    requestNewest: bool
 
 # Configuration
 proc parseConfig(state: var TState, path: string) =
@@ -70,16 +79,13 @@ proc parseConfig(state: var TState, path: string) =
         of "websitepath":
           state.websiteLoc = n.value
           inc(count)
-        of "websiteurl":
-          state.websiteURL = n.value
-          inc(count)
         of "logfilepath":
           state.logLoc = n.value
           inc(count)
         of "archivepath":
           state.zipLoc = n.value
           inc(count)
-        of "docgen": # -- Optional
+        of "docgen":
           state.docgen = if normalize(n.value) == "true": true else: false
         of "csourcegen":
           state.csourceGen = if normalize(n.value) == "true": true else: false
@@ -91,10 +97,22 @@ proc parseConfig(state: var TState, path: string) =
           inc(count)
         of "hubpass":
           state.hubPass = n.value
+        of "ftpuser":
+          state.ftpUser = n.value
+        of "ftppass":
+          state.ftpPass = n.value
+        of "ftpuploaddir":
+          state.ftpUploadDir = n.value
+        of "requestnewest":
+          state.requestNewest =
+            if normalize(n.value) == "true": true else: false
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count < 8:
+    if count < 7:
       quit("Not all settings have been specified in the .ini file", quitFailure)
+    if state.ftpUser != "" and state.ftpPass == "":
+      quit("When ftpUser is specified so must the ftpPass.")
+
     close(p)
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
@@ -102,6 +120,9 @@ proc parseConfig(state: var TState, path: string) =
 proc defaultState(): TState =
   result.hubAddr = "127.0.0.1"
   result.hubPass = ""
+
+  result.ftpUser = ""
+  result.ftpPass = ""
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: var TState, desc: string) =
@@ -111,7 +132,6 @@ proc buildFailed(state: var TState, desc: string) =
   obj["status"] = newJInt(int(sBuildFailure))
   obj["desc"] = newJString(desc)
   obj["hash"] = newJString(state.progress.payload["after"].str)
-  obj["websiteURL"] = newJString(state.websiteURL)
   
   state.sock.send($obj & "\c\L")
   echo(desc)
@@ -123,7 +143,6 @@ proc buildProgressing(state: var TState, desc: string) =
   obj["status"] = newJInt(int(sBuildInProgress))
   obj["desc"] = newJString(desc)
   obj["hash"] = newJString(state.progress.payload["after"].str)
-  obj["websiteURL"] = newJString(state.websiteURL)
   
   state.sock.send($obj & "\c\L")
   echo(desc)
@@ -133,7 +152,6 @@ proc buildSucceeded(state: var TState) =
   var obj = newJObject()
   obj["status"] = newJInt(int(sBuildSuccess))
   obj["hash"] = newJString(state.progress.payload["after"].str)
-  obj["websiteURL"] = newJString(state.websiteURL)
 
   state.sock.send($obj & "\c\L")
   echo("Build successfully completed")
@@ -379,7 +397,22 @@ proc nextStage(state: var TState) =
     # Remove the pre-zipped folder with the binaries.
     dRemoveDir(state.zipLoc / fileName)
     dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
-    
+   
+    # --- FTP file upload, for binaries. ---
+    state.progress.currentProc = uploadNim
+    if state.hubAddr != "127.0.0.1":
+      state.ftp = FTPClient(state.hubAddr, user = state.ftpUser,
+                            pass = state.ftpPass)
+      state.ftp.connect()
+      assert state.ftp.pwd().startsWith("/home/nimrod")
+      state.ftp.cd(state.ftpUploadDir)
+      state.ftp.createDir(fileName, true)
+      state.ftp.store(state.websiteLoc / "commits" / zip, zip)
+      state.buildProgressing("Uploading files...")
+    else: state.nextStage()
+  
+  of uploadNim:
+    # Files uploaded. Success.
     buildSucceeded(state)
   
     # --- Start of tests ---
@@ -402,9 +435,20 @@ proc nextStage(state: var TState) =
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
     
+    # --- FTP file upload, for binaries. ---
+    state.progress.currentProc = uploadTests
+    if state.hubAddr != "127.0.0.1":
+      state.ftp.connect()
+      assert state.ftp.pwd().startsWith("/home/nimrod")
+      state.ftp.cd(state.ftpUploadDir / folderName)
+      state.ftp.store(state.websiteLoc / "commits" /
+                      folderName / "testresults.html", "testresults.html")
+      testProgressing(state, "Uploading test results.")
+    else: state.nextStage()
+      
+  of uploadTests:
     var (total, passed, skipped, failed) =
         tallyTestResults(state.nimLoc / "testresults.json")
-    
     testSucceeded(state, total, passed, skipped, failed)
     # TODO: Copy testresults.json too?
     
@@ -491,65 +535,85 @@ proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
   if isInProgress(state.status.status):
-    var p: PProcess
-    p = state.progress.p
-    
-    assert p != nil
-    var readP = @[p]
-    if select(readP) == 1 and readP.len == 0:
-      var output = p.outputStream.readAll()
-      echo("Got output from ", state.progress.currentProc, ". Len = ",
-           output.len)
+    if state.progress.currentProc notin {uploadNim}:
+      var p: PProcess
+      p = state.progress.p
       
-      # TODO: If you get more problems with process exit not being detected by
-      # peekExitCode then implement a counter of how many messages of len 0
-      # have been received FOR EACH PROCESS. Using waitForExit doesn't seem to
-      # work... GAH. (Gives 3 0_o)
-      writeLogs(state.logFile, state.progress.commitFile, output & "\n")
-    
-    var exitCode = p.peekExitCode
-    echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
-    if exitCode != -1:
-      if exitCode == QuitSuccess:
-        var s = $state.progress.currentProc & " finished successfully."
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-        echo(state.progress.currentProc,
-             " exited successfully. Continuing to next stage.")
-        state.nextStage()
-        s = $state.progress.currentProc & " started."
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-      else:
+      assert p != nil
+      var readP = @[p]
+      if select(readP) == 1 and readP.len == 0:
+        # TODO: Save the outputStream, remember it creates a new file each time.
         var output = p.outputStream.readAll()
-        echo("Got output (after termination) from ",
-             state.progress.currentProc, ". Len = ",
+        echo("Got output from ", state.progress.currentProc, ". Len = ",
              output.len)
-        var s = ""
-        if output.len() > 0:
-          s.add(output)
-        s.add($state.progress.currentProc & " FAILED!")
-         
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
         
-        if state.progress.currentProc <= zipNim:
+        writeLogs(state.logFile, state.progress.commitFile, output & "\n")
+      
+      var exitCode = p.peekExitCode
+      #echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
+      if exitCode != -1:
+        echo(state.progress.currentProc, " terminated")
+        if exitCode == QuitSuccess:
+          var s = $state.progress.currentProc & " finished successfully."
+          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
           echo(state.progress.currentProc,
-               " failed. Build failed! Exit code = ", exitCode)
-          buildFailed(state, $state.progress.currentProc &
-                      " failed with exit code 1")
-        elif state.progress.currentProc <= runTests:
-          echo(state.progress.currentProc,
-               " failed. Running tests failed! Exit code = ", exitCode)
-          testingFailed(state, $state.progress.currentProc &
+               " exited successfully. Continuing to next stage.")
+          state.nextStage()
+          s = $state.progress.currentProc & " started."
+          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+        else:
+          var output = p.outputStream.readAll()
+          echo("Got output (after termination) from ",
+               state.progress.currentProc, ". Len = ",
+               output.len)
+          var s = ""
+          if output.len() > 0:
+            s.add(output)
+          s.add($state.progress.currentProc & " FAILED!")
+           
+          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+          
+          if state.progress.currentProc <= zipNim:
+            echo(state.progress.currentProc,
+                 " failed. Build failed! Exit code = ", exitCode)
+            buildFailed(state, $state.progress.currentProc &
                         " failed with exit code 1")
-        elif state.progress.currentProc <= runDocGen:
-          echo(state.progress.currentProc,
-               " failed. Generating docs failed! Exit code = ", exitCode)
-          docgenFailed(state, $state.progress.currentProc &
-                        " failed with exit code 1")
-        elif state.progress.currentProc <= zipCSrc:
-          echo(state.progress.currentProc,
-               " failed. Generating csources failed! Exit code = ", exitCode)
-          cSrcGenFailed(state, $state.progress.currentProc &
-                        " failed with exit code 1")
+          elif state.progress.currentProc <= runTests:
+            echo(state.progress.currentProc,
+                 " failed. Running tests failed! Exit code = ", exitCode)
+            testingFailed(state, $state.progress.currentProc &
+                          " failed with exit code 1")
+          elif state.progress.currentProc <= runDocGen:
+            echo(state.progress.currentProc,
+                 " failed. Generating docs failed! Exit code = ", exitCode)
+            docgenFailed(state, $state.progress.currentProc &
+                          " failed with exit code 1")
+          elif state.progress.currentProc <= zipCSrc:
+            echo(state.progress.currentProc,
+                 " failed. Generating csources failed! Exit code = ", exitCode)
+            cSrcGenFailed(state, $state.progress.currentProc &
+                          " failed with exit code 1")
+    else:
+      if state.hubAddr != "127.0.0.1":
+        var event: TFTPEvent
+        if state.ftp.poll(event):
+          case event.typ
+          of EvStore:
+            echo("Upload complete. Continuing to next stage.")
+            if event.filename.endsWith("testresults.html"):
+              var commitHash = state.progress.payload["after"].str
+              var folderName = makeCommitPath(state.platform, commitHash)
+              testProgressing(state, "Uploading log.txt")
+              state.ftp.store(state.websiteLoc / "commits" /
+                        folderName / "log.txt", "log.txt")
+            else:
+              state.ftp.close()
+            state.nextStage()
+          of EvTransferProgress:
+            # TODO: Output this less often.
+            echo(event.speed div 1000, " kb/s")
+          else: assert(false)
+      else: assert(false)
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
@@ -573,6 +637,13 @@ proc hubConnect(state: var TState) =
     assert state.sock.recvLine(line)
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
+
+    if state.requestNewest:
+      echo("Requesting newest commit.")
+      var req = newJObject()
+      req["latestCommit"] = newJNull()
+      state.sock.send($req & "\c\L")
+
   else:
     raise newException(EInvalidValue,
                        "Hub didn't accept me. Waited 1.5 seconds.")
@@ -602,20 +673,33 @@ proc handleMessage(state: var TState, line: string) =
   echo("Got message from hub: ", line)
   var json = parseJson(line)
   if json.existsKey("payload"):
-    # This should be a message from the "github" module
-    # The payload object should have a `after` string.
-    # TODO: Make sure the ``ref`` is ``"ref": "refs/heads/master"``.
-    assert(json["payload"].existsKey("after"))
-    state.skipCSource = not fileInModified(json["payload"], "build/csources.zip")
-    state.progress.payload = json["payload"]
-    echo("Bootstrapping!")
-    state.beginBuild()
+    if json["rebuild"].bval:
+      # This commit has already been built. We don't get a full payload as
+      # it is not stored.
+      # Because the build process on depends on "after" that is all that is
+      # needed.
+      assert(json["payload"].existsKey("after"))
+      state.skipCSource = true
+      state.progress.payload = json["payload"]
+      echo("Re-bootstrapping!")
+      state.beginBuild()
+    else:
+      # This should be a message from the "github" module
+      # The payload object should have a `after` string.
+      assert(json["payload"].existsKey("after"))
+      state.skipCSource = not fileInModified(json["payload"],
+                                             "build/csources.zip")
+      state.progress.payload = json["payload"]
+      echo("Bootstrapping!")
+      state.beginBuild()
+
   if json.existsKey("ping"):
     # Website is making sure that the connection is alive.
     # All we do is change the "ping" to "pong" and reply.
     json["pong"] = json["ping"]
     json.delete("ping")
     state.sock.send($json & "\c\L")
+    echo("Replying to Ping")
 
 proc showHelp() =
   const help = """Usage: builder [options] configFile

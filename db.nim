@@ -4,7 +4,7 @@ from sockets import TPort
 
 type
   TDb* = object
-    r: TRedis
+    r*: TRedis
     lastPing: float
 
   TBuildResult* = enum
@@ -13,22 +13,24 @@ type
   TTestResult* = enum
     tUnknown, tFail, tSuccess
 
-  TPlatforms* = seq[TCommit]
+  TEntry* = tuple[c: TCommit, p: seq[TPlatform]]
   
   TCommit* = object
+    commitMsg*, username*, hash*: string
+    date*: TTime
+
+  TPlatform* = object
     buildResult*: TBuildResult
     testResult*: TTestResult
-    failReason*, platform*, hash*, websiteURL*, commitMsg*, username*: string
+    failReason*, platform*: string
     total*, passed*, skipped*, failed*: biggestInt
-    date*: TTime
     csources*: bool
 
 const
   listName = "commits"
-  dbPort* = TPort(6379)
   failOnExisting = False
 
-proc open*(host = "localhost", port = dbPort): TDb =
+proc open*(host = "localhost", port: TPort): TDb =
   result.r = redis.open(host, port)
   result.lastPing = epochTime()
 
@@ -47,20 +49,19 @@ proc updateProperty*(database: TDb, commitHash, platform, property,
   else:
     echo("[INFO:REDIS] '$1' new field added to hash" % [property])
 
-proc addCommit*(database: TDb, commitHash, platform, commitMsg, user: string) =
-  var name = platform & ":" & commitHash
-  if database.r.exists(name):
-    if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
-    else: echo("[Warning] " & name & " already exists!")
-  
+proc globalProperty*(database: TDb, commitHash, property, value: string) =
+  if database.r.hSet(commitHash, property, value).int == 0:
+    echo("[INFO:REDIS] '$1' field updated in hash" % [property])
+  else:
+    echo("[INFO:REDIS] '$1' new field added to hash" % [property])
+
+proc addCommit*(database: TDb, commitHash, commitMsg, user: string) =
   # Add the commit hash to the `commits` list.
   discard database.r.lPush(listName, commitHash)
-  # Add this platform to `commitHash:platforms` list.
-  discard database.r.lPush(commitHash & ":" & "platforms", platform)
   # Add the commit message, current date and username as a property
-  updateProperty(database, commitHash, platform, "commitMsg", commitMsg)
-  updateProperty(database, commitHash, platform, "date", $int(getTime()))
-  updateProperty(database, commitHash, platform, "username", user)
+  globalProperty(database, commitHash, "commitMsg", commitMsg)
+  globalProperty(database, commitHash, "date", $int(getTime()))
+  globalProperty(database, commitHash, "username", user)
 
 proc keepAlive*(database: var TDb) =
   ## Keep the connection alive. Ping redis in this case. This functions does
@@ -72,66 +73,97 @@ proc keepAlive*(database: var TDb) =
     database.lastPing = t
     
 proc getCommits*(database: TDb,
-                 platforms: var seq[string]): seq[TPlatforms] =
+                 plStr: var seq[string]): seq[TEntry] =
   result = @[]
-  for c in items(database.r.lrange("commits", 0, -1)):
+  var commitsRaw = database.r.lrange("commits", 0, -1)
+  for c in items(commitsRaw):
+    var commit: TCommit
+    commit.hash = c
+    for key, value in database.r.hPairs(c):
+      case normalize(key)
+      of "commitmsg": commit.commitMsg = value
+      of "date": commit.date = TTime(parseInt(value))
+      of "username": commit.username = value
+      else:
+        echo(key)
+        assert(false)
+
     var platformsRaw = database.r.lrange(c & ":platforms", 0, -1)
-    var commitPlatforms: TPlatforms = @[]
+    var platforms: seq[TPlatform] = @[]
     for p in items(platformsRaw):
-      var commit: TCommit
+      var platform: TPlatform
       for key, value in database.r.hPairs(p & ":" & c):
         case normalize(key)
         of "buildresult":
-          commit.buildResult = parseInt(value).TBuildResult
+          platform.buildResult = parseInt(value).TBuildResult
         of "testresult":
-          commit.testResult = parseInt(value).TTestResult
+          platform.testResult = parseInt(value).TTestResult
         of "failreason":
-          commit.failReason = value
-        of "websiteurl":
-          commit.websiteURL = value
+          platform.failReason = value
         of "total":
-          commit.total = parseBiggestInt(value)
+          platform.total = parseBiggestInt(value)
         of "passed":
-          commit.passed = parseBiggestInt(value)
+          platform.passed = parseBiggestInt(value)
         of "skipped":
-          commit.skipped = parseBiggestInt(value)
+          platform.skipped = parseBiggestInt(value)
         of "failed":
-          commit.failed = parseBiggestInt(value)
-        of "commitmsg":
-          commit.commitMsg = value
-        of "date":
-          commit.date = TTime(parseInt(value))
-        of "username":
-          commit.username = value
+          platform.failed = parseBiggestInt(value)
         of "csources":
-          commit.csources = if value == "t": true else: false
+          platform.csources = if value == "t": true else: false
         else:
           echo(normalize(key))
           assert(false)
       
-      commit.platform = p
-      commit.hash = c
+      platform.platform = p
       
-      commitPlatforms.add(commit)
-      if p notin platforms:
-        platforms.add(P)
-    result.add(commitPlatforms)
+      platforms.add(platform)
+      if p notin plStr:
+        plStr.add(p)
+    result.add((commit, platforms))
 
-proc commitExists*(database: TDb, commit: string): bool =
+proc commitExists*(database: TDb, commit: string, starts = false): bool =
   # TODO: Consider making the 'commits' list a set.
   for c in items(database.r.lrange("commits", 0, -1)):
-    if c == commit: return true
+    if starts:
+      if c.startsWith(commit): return true
+    else:
+      if c == commit: return true
   return false
 
-proc `[]`*(cPlatforms: TPlatforms, p: string): TCommit =
-  for c in items(cPlatforms):
-    if c.platform == p:
-      return c
-  raise newException(EInvalidValue, p & " platforms not found in commits.")
+proc platformExists*(database: TDb, commit: string, platform: string): bool =
+  for p in items(database.r.lrange(commit & ":" & "platforms", 0, -1)):
+    if p == platform: return true
+
+proc expandHash*(database: TDb, commit: string): string =
+  for c in items(database.r.lrange("commits", 0, -1)):
+    if c.startsWith(commit): return c
+  assert false
+
+proc isNewest*(database: TDb, commit: string): bool =
+  return database.r.lIndex("commits", 0) == commit
+
+proc getNewest*(database: TDb): string =
+  return database.r.lIndex("commits", 0)
+
+proc addPlatform*(database: TDb, commit: string, platform: string) =
+  assert database.commitExists(commit)
+  assert (not database.platformExists(commit, platform))
+  var name = platform & ":" & commit
+  if database.r.exists(name):
+    if failOnExisting: quit("[FAIL] " & name & " already exists!", 1)
+    else: echo("[Warning] " & name & " already exists!")
+
+  discard database.r.lPush(commit & ":" & "platforms", platform)
+
+proc `[]`*(p: seq[TPlatform], name: string): TPlatform =
+  for platform in items(p):
+    if platform.platform == name:
+      return platform
+  raise newException(EInvalidValue, name & " platforms not found in commits.")
   
-proc contains*(p: TPlatforms, s: string): bool =
-  for c in items(p):
-    if c.platform == s:
+proc contains*(p: seq[TPlatform], s: string): bool =
+  for i in items(p):
+    if i.platform == s:
       return True
     
     
