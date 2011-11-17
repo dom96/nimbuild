@@ -407,7 +407,7 @@ proc nextStage(state: var TState) =
       assert state.ftp.pwd().startsWith("/home/nimrod")
       state.ftp.cd(state.ftpUploadDir)
       state.ftp.createDir(fileName, true)
-      state.ftp.store(state.websiteLoc / "commits" / zip, zip)
+      state.ftp.store(state.websiteLoc / "commits" / zip, zip, async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
   
@@ -442,7 +442,8 @@ proc nextStage(state: var TState) =
       assert state.ftp.pwd().startsWith("/home/nimrod")
       state.ftp.cd(state.ftpUploadDir / folderName)
       state.ftp.store(state.websiteLoc / "commits" /
-                      folderName / "testresults.html", "testresults.html")
+                      folderName / "testresults.html", "testresults.html",
+                      async = true)
       testProgressing(state, "Uploading test results.")
     else: state.nextStage()
       
@@ -535,7 +536,7 @@ proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
   if isInProgress(state.status.status):
-    if state.progress.currentProc notin {uploadNim}:
+    if state.progress.currentProc notin {uploadNim, uploadTests}:
       var p: PProcess
       p = state.progress.p
       
@@ -605,10 +606,10 @@ proc checkProgress(state: var TState) =
               var folderName = makeCommitPath(state.platform, commitHash)
               testProgressing(state, "Uploading log.txt")
               state.ftp.store(state.websiteLoc / "commits" /
-                        folderName / "log.txt", "log.txt")
+                        folderName / "log.txt", "log.txt", async = true)
             else:
               state.ftp.close()
-            state.nextStage()
+              state.nextStage()
           of EvTransferProgress:
             # TODO: Output this less often.
             echo(event.speed div 1000, " kb/s")
