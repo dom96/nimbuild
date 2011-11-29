@@ -552,10 +552,14 @@ proc writeLogs(logFile, commitFile: TFile, s: string) =
   commitFile.write(s)
   commitFile.flushFile()
 
+proc isProcess(currentProc: TCurrentProc): bool =
+  return currentProc notin {uploadNim, uploadTests, uploadLogs}
+
 proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
-  if isInProgress(state.status.status):
+  if isInProgress(state.status.status) and 
+     isProcess(state.progress.currentProc):
     var p: PProcess
     p = state.progress.p
     
