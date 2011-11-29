@@ -735,7 +735,7 @@ when isMainModule:
   while True:
     readSock = @[state.sock]
     var timeout = 200
-    if state.progress.currentProc notin {uploadNim, uploadTests}:
+    if state.progress.currentProc in {uploadNim, uploadTests}:
       timeout = 1
 
     if select(readSock, timeout) == 1 and readSock.len == 0:
