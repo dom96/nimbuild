@@ -734,7 +734,11 @@ when isMainModule:
   var readSock: seq[TSocket] = @[]
   while True:
     readSock = @[state.sock]
-    if select(readSock, 200) == 1 and readSock.len == 0:
+    var timeout = 200
+    if state.progress.currentProc notin {uploadNim, uploadTests}:
+      timeout = 1
+
+    if select(readSock, timeout) == 1 and readSock.len == 0:
       var line = ""
       if state.sock.recvLine(line):
         state.handleMessage(line)
