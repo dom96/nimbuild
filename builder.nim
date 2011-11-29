@@ -21,8 +21,9 @@ type
     runTests, # Testing
     uploadTests, # FTP Upload #2
     runDocGen, # Doc gen
-    runCSrcGen, zipCSrc # csource gen
-    
+    runCSrcGen, zipCSrc, # csource gen
+    uploadLogs # FTP Upload #3
+
   TProgress = object
     currentProc: TCurrentProc
     p: PProcess
@@ -329,6 +330,20 @@ proc beginBuild(state: var TState) =
                                     "checkout", ".")
   state.buildProgressing("Unstaging changes.")
 
+proc setUploadLogs(state: var TState) =
+  state.progress.currentProc = uploadLogs
+
+  # Upload the log.txt file
+  if state.hubAddr != "127.0.0.1":
+    state.ftp.connect()
+    assert state.ftp.pwd().startsWith("/home/nimrod")
+    var commitHash = state.progress.payload["after"].str
+    var folderName = makeCommitPath(state.platform, commitHash)
+    state.ftp.cd(state.ftpUploadDir / folderName)
+    echo("Uploading log.txt")
+    state.ftp.store(state.websiteLoc / "commits" /
+              folderName / "log.txt", "log.txt", async = true)
+
 proc nextStage(state: var TState) =
   case state.progress.currentProc
   of unstage:
@@ -518,6 +533,11 @@ proc nextStage(state: var TState) =
     dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
 
     state.cSrcGenSucceeded()
+    
+    state.setUploadLogs()
+
+  of uploadLogs:
+    echo("Builder done.")
 
 proc readAll(s: PStream): string =
   result = ""
@@ -536,85 +556,81 @@ proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
   if isInProgress(state.status.status):
-    if state.progress.currentProc notin {uploadNim, uploadTests}:
-      var p: PProcess
-      p = state.progress.p
+    var p: PProcess
+    p = state.progress.p
+    
+    assert p != nil
+    var readP = @[p]
+    if select(readP) == 1 and readP.len == 0:
+      # TODO: Save the outputStream, remember it creates a new file each time.
+      var output = p.outputStream.readAll()
+      echo("Got output from ", state.progress.currentProc, ". Len = ",
+           output.len)
       
-      assert p != nil
-      var readP = @[p]
-      if select(readP) == 1 and readP.len == 0:
-        # TODO: Save the outputStream, remember it creates a new file each time.
+      writeLogs(state.logFile, state.progress.commitFile, output & "\n")
+    
+    var exitCode = p.peekExitCode
+    #echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
+    if exitCode != -1:
+      echo(state.progress.currentProc, " terminated")
+      if exitCode == QuitSuccess:
+        var s = $state.progress.currentProc & " finished successfully."
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+        echo(state.progress.currentProc,
+             " exited successfully. Continuing to next stage.")
+        state.nextStage()
+        s = $state.progress.currentProc & " started."
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+      else:
         var output = p.outputStream.readAll()
-        echo("Got output from ", state.progress.currentProc, ". Len = ",
+        echo("Got output (after termination) from ",
+             state.progress.currentProc, ". Len = ",
              output.len)
+        var s = ""
+        if output.len() > 0:
+          s.add(output)
+        s.add($state.progress.currentProc & " FAILED!")
+         
+        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
         
-        writeLogs(state.logFile, state.progress.commitFile, output & "\n")
-      
-      var exitCode = p.peekExitCode
-      #echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
-      if exitCode != -1:
-        echo(state.progress.currentProc, " terminated")
-        if exitCode == QuitSuccess:
-          var s = $state.progress.currentProc & " finished successfully."
-          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+        if state.progress.currentProc <= zipNim:
           echo(state.progress.currentProc,
-               " exited successfully. Continuing to next stage.")
-          state.nextStage()
-          s = $state.progress.currentProc & " started."
-          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-        else:
-          var output = p.outputStream.readAll()
-          echo("Got output (after termination) from ",
-               state.progress.currentProc, ". Len = ",
-               output.len)
-          var s = ""
-          if output.len() > 0:
-            s.add(output)
-          s.add($state.progress.currentProc & " FAILED!")
-           
-          writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-          
-          if state.progress.currentProc <= zipNim:
-            echo(state.progress.currentProc,
-                 " failed. Build failed! Exit code = ", exitCode)
-            buildFailed(state, $state.progress.currentProc &
+               " failed. Build failed! Exit code = ", exitCode)
+          buildFailed(state, $state.progress.currentProc &
+                      " failed with exit code 1")
+        elif state.progress.currentProc <= runTests:
+          echo(state.progress.currentProc,
+               " failed. Running tests failed! Exit code = ", exitCode)
+          testingFailed(state, $state.progress.currentProc &
                         " failed with exit code 1")
-          elif state.progress.currentProc <= runTests:
-            echo(state.progress.currentProc,
-                 " failed. Running tests failed! Exit code = ", exitCode)
-            testingFailed(state, $state.progress.currentProc &
-                          " failed with exit code 1")
-          elif state.progress.currentProc <= runDocGen:
-            echo(state.progress.currentProc,
-                 " failed. Generating docs failed! Exit code = ", exitCode)
-            docgenFailed(state, $state.progress.currentProc &
-                          " failed with exit code 1")
-          elif state.progress.currentProc <= zipCSrc:
-            echo(state.progress.currentProc,
-                 " failed. Generating csources failed! Exit code = ", exitCode)
-            cSrcGenFailed(state, $state.progress.currentProc &
-                          " failed with exit code 1")
-    else:
-      if state.hubAddr != "127.0.0.1":
-        var event: TFTPEvent
-        if state.ftp.poll(event):
-          case event.typ
-          of EvStore:
-            echo("Upload complete. Continuing to next stage.")
-            if event.filename.endsWith("testresults.html"):
-              var commitHash = state.progress.payload["after"].str
-              var folderName = makeCommitPath(state.platform, commitHash)
-              testProgressing(state, "Uploading log.txt")
-              state.ftp.store(state.websiteLoc / "commits" /
-                        folderName / "log.txt", "log.txt", async = true)
-            else:
-              state.ftp.close()
-              state.nextStage()
-          of EvTransferProgress:
-            # TODO: Output this less often.
-            echo(event.speed div 1000, " kb/s")
-          else: assert(false)
-      else: assert(false)
+        elif state.progress.currentProc <= runDocGen:
+          echo(state.progress.currentProc,
+               " failed. Generating docs failed! Exit code = ", exitCode)
+          docgenFailed(state, $state.progress.currentProc &
+                        " failed with exit code 1")
+        elif state.progress.currentProc <= zipCSrc:
+          echo(state.progress.currentProc,
+               " failed. Generating csources failed! Exit code = ", exitCode)
+          cSrcGenFailed(state, $state.progress.currentProc &
+                        " failed with exit code 1")
+       
+        state.setUploadLogs()
+        
+  if state.progress.currentProc in {uploadNim, uploadTests, uploadLogs}:
+    if state.hubAddr != "127.0.0.1":
+      var event: TFTPEvent
+      if state.ftp.poll(event):
+        case event.typ
+        of EvStore:
+          echo("Upload complete. Continuing to next stage.")
+
+          state.ftp.close()
+          state.nextStage()
+        of EvTransferProgress:
+          # TODO: Output this less often.
+          echo(event.speed div 1000, " kb/s")
+        else: assert(false)
+    else: assert(false)
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
