@@ -36,7 +36,10 @@
         <tr>
           <td><a href="${genCommitUrl(c.hash)}">${c.hash[0..11]}</a></td>
         #for p in items(platforms):
-          <td>${genPlatformResult(c, pls[p],state.platforms, genCssPath(state))}
+          <td>
+          #if p in pls:
+            ${genPlatformResult(c, pls[p],state.platforms, genCssPath(state))}
+          #end if
           </td>
         #end for
           <td><a href="${genUserUrl(c.username)}">${c.username}</td>

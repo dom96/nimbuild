@@ -9,6 +9,9 @@ const
 This is a minimal distribution of the Nimrod compiler. Full source code can be
 found at http://github.com/Araq/Nimrod
 """
+  webReadFP = {fpGroupRead, fpGroupExec, fpOthersRead,
+               fpOthersExec, fpUserWrite,
+               fpUserRead, fpUserExec}
 
 
 type
@@ -422,6 +425,7 @@ proc nextStage(state: var TState) =
       assert state.ftp.pwd().startsWith("/home/nimrod")
       state.ftp.cd(state.ftpUploadDir)
       state.ftp.createDir(fileName, true)
+      state.ftp.chmod(fileName, webReadFP)
       state.ftp.store(state.websiteLoc / "commits" / zip, zip, async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
@@ -443,9 +447,7 @@ proc nextStage(state: var TState) =
     var folderName = makeCommitPath(state.platform, commitHash)
     #dCreateDir(state.websiteLoc / "commits" / folderName)
     setFilePermissions(state.websiteLoc / "commits" / folderName,
-                       {fpGroupRead, fpGroupExec, fpOthersRead,
-                        fpOthersExec, fpUserWrite,
-                        fpUserRead, fpUserExec}) # TODO: Make a webReadFP const
+                       webReadFP)
                         
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
@@ -755,7 +757,7 @@ when isMainModule:
   while True:
     readSock = @[state.sock]
     var timeout = 200
-    if state.progress.currentProc in {uploadNim, uploadTests}:
+    if state.progress.currentProc in {uploadNim, uploadTests, uploadLogs}:
       timeout = 1
 
     if select(readSock, timeout) == 1 and readSock.len == 0:

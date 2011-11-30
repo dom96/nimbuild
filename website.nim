@@ -354,6 +354,8 @@ proc parseMessage(state: var TState, mIndex: int, line: string) =
     reply["payload"]["after"] = newJString(commit)
     reply["rebuild"] = newJBool(true)
     m.sock.send($reply & "\c\L")
+    if not state.database.platformExists(commit, m.platform):
+      state.database.addPlatform(commit, m.platform)
 
   elif json.existsKey("pong"):
     # Module received PING and replied with PONG.
@@ -545,43 +547,43 @@ when isMainModule:
   echo("Started website: built at ", CompileDate, " ", CompileTime)
 
   var state = website.open(configPath)
-  proc main() =
-    var readSocks: seq[TSocket] = @[]
-    while True:
-      try:
-        if state.scgi.next(200):
-          handleRequest(state)
-      except EScgi:
-        echo("Got erroneous message from web server")
-      
-      readSocks = state.populateReadSocks()
-      if select(readSocks, 10) != 0:
-        if state.sock notin readSocks:
-          # Connection from a module
-          var (client, IPAddr) = state.sock.acceptAddr()
-          if client == InvalidSocket: OSError()
-          var clientS = @[client]
-          # Wait 1.5 seconds for a greeting.
-          if select(clientS, 1500) == 1:
-            var line = ""
-            assert client.recvLine(line)
-            if state.parseGreeting(client, IPAddr, line):
-              # Reply to the module
-              client.send("{ \"reply\": \"OK\" }\c\L")
-            else:
-              client.send("{ \"reply\": \"FAIL\" }\c\L")
-              echo("Rejected ", IPAddr)
-              client.close()
-        else:
-          # Message from a module
-          state.handleModuleMsg(readSocks)
-      
-      state.handlePings()
-      
-      state.database.keepAlive()
+  #proc main() =
+  var readSocks: seq[TSocket] = @[]
+  while True:
+    try:
+      if state.scgi.next(200):
+        handleRequest(state)
+    except EScgi:
+      echo("Got erroneous message from web server")
+    
+    readSocks = state.populateReadSocks()
+    if select(readSocks, 10) != 0:
+      if state.sock notin readSocks:
+        # Connection from a module
+        var (client, IPAddr) = state.sock.acceptAddr()
+        if client == InvalidSocket: OSError()
+        var clientS = @[client]
+        # Wait 1.5 seconds for a greeting.
+        if select(clientS, 1500) == 1:
+          var line = ""
+          assert client.recvLine(line)
+          if state.parseGreeting(client, IPAddr, line):
+            # Reply to the module
+            client.send("{ \"reply\": \"OK\" }\c\L")
+          else:
+            client.send("{ \"reply\": \"FAIL\" }\c\L")
+            echo("Rejected ", IPAddr)
+            client.close()
+      else:
+        # Message from a module
+        state.handleModuleMsg(readSocks)
+    
+    state.handlePings()
+    
+    state.database.keepAlive()
   
-  try:
-    main()
-  except EControlC:
-    cleanup(state)
+#  try:
+#    main()
+#  except EControlC:
+#    cleanup(state)
 
