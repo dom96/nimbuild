@@ -9,9 +9,8 @@ const
 This is a minimal distribution of the Nimrod compiler. Full source code can be
 found at http://github.com/Araq/Nimrod
 """
-  webReadFP = {fpGroupRead, fpGroupExec, fpOthersRead,
-               fpOthersExec, fpUserWrite,
-               fpUserRead, fpUserExec}
+  webFP = {fpUserRead, fpUserWrite, fpUserExec,
+           fpGroupRead, fpOthersRead}
 
 
 type
@@ -425,7 +424,7 @@ proc nextStage(state: var TState) =
       assert state.ftp.pwd().startsWith("/home/nimrod")
       state.ftp.cd(state.ftpUploadDir)
       state.ftp.createDir(fileName, true)
-      state.ftp.chmod(fileName, webReadFP)
+      state.ftp.chmod(fileName, webFP)
       state.ftp.store(state.websiteLoc / "commits" / zip, zip, async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
@@ -447,7 +446,7 @@ proc nextStage(state: var TState) =
     var folderName = makeCommitPath(state.platform, commitHash)
     #dCreateDir(state.websiteLoc / "commits" / folderName)
     setFilePermissions(state.websiteLoc / "commits" / folderName,
-                       webReadFP)
+                       webFP)
                         
     dCopyFile(state.nimLoc / "testresults.html",
               state.websiteLoc / "commits" / folderName / "testresults.html")
@@ -628,7 +627,9 @@ proc checkProgress(state: var TState) =
       if state.ftp.poll(event):
         case event.typ
         of EvStore:
-          echo("Upload complete. Continuing to next stage.")
+          echo("Upload of ", event.filename,
+               " complete. Continuing to next stage.")
+          state.ftp.chmod(event.filename, webFP)
 
           state.ftp.close()
           state.nextStage()
