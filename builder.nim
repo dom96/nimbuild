@@ -422,7 +422,7 @@ proc nextStage(state: var TState) =
                             pass = state.ftpPass)
       state.ftp.connect()
       assert state.ftp.pwd().startsWith("/home/nimrod")
-      state.ftp.cd(state.ftpUploadDir)
+      state.ftp.cd(state.ftpUploadDir / "commits")
       state.ftp.createDir(fileName, true)
       state.ftp.chmod(fileName, webFP)
       state.ftp.store(state.websiteLoc / "commits" / zip, zip, async = true)
@@ -629,7 +629,10 @@ proc checkProgress(state: var TState) =
         of EvStore:
           echo("Upload of ", event.filename,
                " complete. Continuing to next stage.")
-          state.ftp.chmod(event.filename, webFP)
+          var path = state.ftpUploadDir /
+                     event.filename[state.websiteLoc.len()-1.. -1]
+          echo("Changing permissions for ", path)
+          state.ftp.chmod(path, webFP)
 
           state.ftp.close()
           state.nextStage()
