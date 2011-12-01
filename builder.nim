@@ -29,6 +29,7 @@ type
   TProgress = object
     currentProc: TCurrentProc
     p: PProcess
+    outPipe: PStream
     payload: PJsonNode
     commitFile: TFile
 
@@ -257,8 +258,10 @@ proc cSrcGenSucceeded(state: var TState) =
   state.sock.send($obj & "\c\L")
   echo("csource gen success")
 
-proc startMyProcess(cmd, workDir: string, args: openarray[string]): PProcess =
+proc startMyProcess(state: var TState, cmd, workDir: string,
+                    args: openarray[string]): PProcess =
   result = startProcess(cmd, workDir, args, nil)
+  state.progress.outPipe = state.progress.p.outputStream
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -328,7 +331,7 @@ proc beginBuild(state: var TState) =
   state.progress.commitFile = open(logFile, fmAppend)
   
   state.progress.currentProc = unstage
-  state.progress.p = startMyProcess(findExe("git"), state.nimLoc,
+  state.progress.p = state.startMyProcess(findExe("git"), state.nimLoc,
                                     "checkout", ".")
   state.buildProgressing("Unstaging changes.")
 
@@ -350,43 +353,44 @@ proc nextStage(state: var TState) =
   case state.progress.currentProc
   of unstage:
     state.progress.currentProc = pullProc
-    state.progress.p = startMyProcess(findExe("git"), state.nimLoc, "pull")
+    state.progress.p = state.startMyProcess(findExe("git"),
+                         state.nimLoc, "pull")
     state.buildProgressing("Executing the git pull command.")
   of pullProc:
     if not state.skipCSource:
       state.progress.currentProc = clean
-      state.progress.p = startMyProcess("koch",
+      state.progress.p = state.startMyProcess("koch",
           state.nimLoc, "clean")
       state.buildProgressing("Executing koch clean")
     else:
       # Same code as in ``of buildSh:``
       state.progress.currentProc = compileKoch
-      state.progress.p = startMyProcess("bin/nimrod",
+      state.progress.p = state.startMyProcess("bin/nimrod",
           state.nimLoc, "c", "koch.nim")
       state.buildProgressing("Compiling koch.nim")
   of clean:
     state.progress.currentProc = unzipCSources
-    state.progress.p = startMyProcess(findExe("unzip"),
+    state.progress.p = state.startMyProcess(findExe("unzip"),
         state.nimLoc / "build", "csources.zip")
     state.buildProgressing("Executing unzip")
   of unzipCSources:
     state.progress.currentProc = buildSh
-    state.progress.p = startMyProcess(findExe("sh"),
+    state.progress.p = state.startMyProcess(findExe("sh"),
         state.nimLoc, "build.sh")
     state.buildProgressing("Compiling C sources")
   of buildSh:
     state.progress.currentProc = compileKoch
-    state.progress.p = startMyProcess("bin/nimrod",
+    state.progress.p = state.startMyProcess("bin/nimrod",
         state.nimLoc, "c", "koch.nim")
     state.buildProgressing("Compiling koch.nim")
   of compileKoch:
     state.progress.currentProc = bootNimDebug
-    state.progress.p = startMyProcess("koch",
+    state.progress.p = state.startMyProcess("koch",
         state.nimLoc, "boot")
     state.buildProgressing("Bootstrapping Nimrod")
   of bootNimDebug:
     state.progress.currentProc = bootNim
-    state.progress.p = startMyProcess("koch",
+    state.progress.p = state.startMyProcess("koch",
         state.nimLoc, "boot", "-d:release")
     state.buildProgressing("Bootstrapping Nimrod in release mode")
   of bootNim:
@@ -402,7 +406,7 @@ proc nextStage(state: var TState) =
     # Remove the .zip in case it already exists...
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipNim
-    state.progress.p = startMyProcess(findexe("zip"),
+    state.progress.p = state.startMyProcess(findexe("zip"),
         state.zipLoc, "-r", zipFile, folderName)
     state.buildProgressing("Creating archive - zip")
   
@@ -437,7 +441,7 @@ proc nextStage(state: var TState) =
     
     # Start test suite!
     state.progress.currentProc = runTests
-    state.progress.p = startMyProcess("koch", state.nimLoc, "tests")
+    state.progress.p = state.startMyProcess("koch", state.nimLoc, "tests")
     testProgressing(state, "Testing nimrod build...")
     
   of runTests:
@@ -475,7 +479,7 @@ proc nextStage(state: var TState) =
       dCreateDir(state.nimLoc / "web" / "upload")
       dCreateDir(state.websiteLoc / "docs")
       state.progress.currentProc = runDocGen
-      state.progress.p = startMyProcess("koch",
+      state.progress.p = state.startMyProcess("koch",
                 state.nimLoc, "web")
       docgenProgressing(state, "Running koch web...")
   of runDocGen:
@@ -492,7 +496,7 @@ proc nextStage(state: var TState) =
       dCreateDir(state.nimLoc / "build")
 
       state.progress.currentProc = runCSrcGen
-      state.progress.p = startMyProcess("koch",
+      state.progress.p = state.startMyProcess("koch",
           state.nimLoc, "csource")
       state.cSrcGenProgressing("Running `koch csource`")
 
@@ -518,7 +522,7 @@ proc nextStage(state: var TState) =
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
-    state.progress.p = startMyProcess(findexe("zip"),
+    state.progress.p = state.startMyProcess(findexe("zip"),
         state.zipLoc, "-r", zipFile, folderName)
     state.cSrcGenProgressing("Creating csource archive")
 
@@ -542,7 +546,7 @@ proc nextStage(state: var TState) =
 
 proc readAll(s: PStream): string =
   result = ""
-  while True:
+  while not s.atEnd():
     var c = s.readChar()
     if c == '\0': break
     result.add(c)
@@ -567,8 +571,7 @@ proc checkProgress(state: var TState) =
     assert p != nil
     var readP = @[p]
     if select(readP) == 1 and readP.len == 0:
-      # TODO: Save the outputStream, remember it creates a new file each time.
-      var output = p.outputStream.readAll()
+      var output = state.progress.outPipe.readAll()
       echo("Got output from ", state.progress.currentProc, ". Len = ",
            output.len)
       

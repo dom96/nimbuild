@@ -392,7 +392,7 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
 proc handlePings(state: var TState) =
   var remove: seq[TModule] = @[] # Modules that have timed out.
   for i in 0..state.modules.len-1:
-    var module = state.modules[i]
+    template module: expr = state.modules[i]
     if module.name == "builder":
       if module.pinged and (epochTime() - module.lastPong) >= 25.0:
         echo(uniqueMName(module),
