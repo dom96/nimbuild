@@ -647,7 +647,7 @@ proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc hubConnect(state: var TState) =
+proc hubConnect(state: var TState, reconnect: bool) =
   state.sock = socket()
   state.sock.connect(state.hubAddr, TPort(state.hubPort))
   
@@ -665,7 +665,7 @@ proc hubConnect(state: var TState) =
     assert parseReply(line, "OK")
     echo("The hub accepted me!")
 
-    if state.requestNewest:
+    if state.requestNewest and not reconnect:
       echo("Requesting newest commit.")
       var req = newJObject()
       req["latestCommit"] = newJNull()
@@ -683,7 +683,7 @@ proc open(configPath: string): TState =
     quit(result.nimLoc & " does not exist!", quitFailure)
   
   # Connect to the hub
-  result.hubConnect()
+  result.hubConnect(false)
 
   # Open log file
   result.logFile = open(result.logLoc, fmAppend)
@@ -775,7 +775,7 @@ when isMainModule:
           echo("Reconnecting...")
           try:
             connected = true
-            state.hubConnect()
+            state.hubConnect(true)
           except:
             echo(getCurrentExceptionMsg())
             connected = false

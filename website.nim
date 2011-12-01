@@ -394,6 +394,12 @@ proc handlePings(state: var TState) =
   for i in 0..state.modules.len-1:
     var module = state.modules[i]
     if module.name == "builder":
+      if module.pinged and (epochTime() - module.lastPong) >= 25.0:
+        echo(uniqueMName(module),
+             " has not replied to PING. Assuming timeout!!!")
+        remove.add(module)
+        continue
+
       if (epochTime() - module.lastPong) >= 100.0:
         var obj = newJObject()
         obj["ping"] = newJString(formatFloat(epochTime()))
@@ -403,11 +409,6 @@ proc handlePings(state: var TState) =
         module.pinged = true
         echo("Pinging ", uniqueMName(module))
     
-      if module.pinged and (epochTime() - module.lastPong) >= 25.0:
-        echo(uniqueMName(module),
-             " has not replied to PING. Assuming timeout!!!")
-        remove.add(module)
-
   # Remove the modules that have timed out.
   for m in items(remove):
     state.remove(m)
