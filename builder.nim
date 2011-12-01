@@ -417,9 +417,10 @@ proc nextStage(state: var TState) =
     var commitHash = state.progress.payload["after"].str
     var fileName = makeCommitPath(state.platform, commitHash)
     var zip = addFileExt(fileName, "zip")
+    var saveAs = addFileExt(makeZipPath(state.platform, commitHash), "zip")
     # Remove the pre-zipped folder with the binaries.
     dRemoveDir(state.zipLoc / fileName)
-    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / saveAs)
    
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadNim
@@ -431,7 +432,8 @@ proc nextStage(state: var TState) =
       state.ftp.cd(state.ftpUploadDir / "commits")
       state.ftp.createDir(fileName, true)
       state.ftp.chmod(fileName, webFP)
-      state.ftp.store(state.websiteLoc / "commits" / zip, zip, async = true)
+      state.ftp.store(state.websiteLoc / "commits" / saveAs, saveAs,
+                      async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
   
@@ -540,12 +542,15 @@ proc nextStage(state: var TState) =
     # Copy the .zip file
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
-
     folderName.add("_csources")
+    var saveAs = makeZipPath(state.platform, commitHash)
+    saveAs.add("_csources")
+    saveAs.addFileExt("zip")
+
     # Remove the pre-zipped folder with the C sources.
     dRemoveDir(state.zipLoc / folderName)
     var zip = folderName.addFileExt("zip")
-    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / zip)
+    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / saveAs)
 
     state.cSrcGenSucceeded()
     

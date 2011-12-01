@@ -476,7 +476,7 @@ proc genDownloadButtons(entries: seq[TEntry],
       if p in pls:
         var platform = pls[p]
         if platform.buildResult == bSuccess:
-          var url = joinUrl(websiteUrl, "commits/$2/$1/nimrod_$1.zip" %
+          var url = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
                             [c.hash[0..11], platform.platform])
           var class = ""
           if i == 0: class = "left button"
@@ -488,7 +488,7 @@ proc genDownloadButtons(entries: seq[TEntry],
                       
           if platform.csources and not cSrcs:
             var cSrcUrl = joinUrl(websiteUrl,
-                                  "commits/$2/$1/nimrod_$1_csources.zip" %
+                                  "commits/$2/nimrod_$1_csources.zip" %
                                   [c.hash[0..11], platform.platform])
             result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
                        [cSrcUrl, "middle button", downloadSpan,
