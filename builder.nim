@@ -348,6 +348,8 @@ proc setUploadLogs(state: var TState) =
     echo("Uploading log.txt")
     state.ftp.store(state.websiteLoc / "commits" /
               folderName / "log.txt", "log.txt", async = true)
+  else:
+    echo("Local builder, no need to upload logs. Build complete.")
 
 proc nextStage(state: var TState) =
   case state.progress.currentProc
@@ -475,18 +477,22 @@ proc nextStage(state: var TState) =
     
     # --- Start of doc gen ---
     # Create the upload directory and the docs directory on the website
+    state.progress.currentProc = runDocGen
     if state.docgen:
       dCreateDir(state.nimLoc / "web" / "upload")
       dCreateDir(state.websiteLoc / "docs")
-      state.progress.currentProc = runDocGen
       state.progress.p = state.startMyProcess("koch",
                 state.nimLoc, "web")
       docgenProgressing(state, "Running koch web...")
+    else:
+      state.nextStage() # Skip this stage.
+
   of runDocGen:
-    # Copy all the docs to the website.
-    dCopyDir(state.nimLoc / "web" / "upload", state.websiteLoc / "docs")
+    if state.docGen:
+      # Copy all the docs to the website.
+      dCopyDir(state.nimLoc / "web" / "upload", state.websiteLoc / "docs")
     
-    docgenSucceeded(state)
+      docgenSucceeded(state)
   
     # --- Start of csources gen ---
     if state.csourceGen:
@@ -499,6 +505,8 @@ proc nextStage(state: var TState) =
       state.progress.p = state.startMyProcess("koch",
           state.nimLoc, "csource")
       state.cSrcGenProgressing("Running `koch csource`")
+    else:
+      state.setUploadLogs() # Skip the rest, and move onto the upload of log.txt
 
   of runCSrcGen:
     # Zip up the csources.
@@ -511,8 +519,10 @@ proc nextStage(state: var TState) =
     # -- Move `build_old` to where it was.
     dMoveDir(state.nimLoc / "build_old", state.nimLoc / "build")
     # -- Copy build.sh and build.bat.
-    dCopyFile(state.nimLoc / "build.sh", state.zipLoc / folderName / "build.sh")
-    dCopyFile(state.nimLoc / "build.bat", state.zipLoc / folderName / "build.bat")
+    dCopyFile(state.nimLoc / "build.sh", state.zipLoc / folderName /
+               "build.sh")
+    dCopyFile(state.nimLoc / "build.bat", state.zipLoc / folderName /
+               "build.bat")
     # -- License
     dCopyFile(state.nimLoc / "copying.txt",
               state.zipLoc / folderName / "copying.txt")
