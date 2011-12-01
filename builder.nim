@@ -261,7 +261,7 @@ proc cSrcGenSucceeded(state: var TState) =
 proc startMyProcess(state: var TState, cmd, workDir: string,
                     args: openarray[string]): PProcess =
   result = startProcess(cmd, workDir, args, nil)
-  state.progress.outPipe = state.progress.p.outputStream
+  state.progress.outPipe = result.outputStream
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -460,7 +460,7 @@ proc nextStage(state: var TState) =
     if state.hubAddr != "127.0.0.1":
       state.ftp.connect()
       assert state.ftp.pwd().startsWith("/home/nimrod")
-      state.ftp.cd(state.ftpUploadDir / folderName)
+      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
       state.ftp.store(state.websiteLoc / "commits" /
                       folderName / "testresults.html", "testresults.html",
                       async = true)
@@ -544,9 +544,11 @@ proc nextStage(state: var TState) =
   of uploadLogs:
     echo("Builder done.")
 
-proc readAll(s: PStream): string =
+proc readAll(p: PProcess, s: PStream): string =
   result = ""
-  while not s.atEnd():
+  while True:
+    var ps: seq[PProcess] = @[p]
+    if select(ps, 1) != 1: return
     var c = s.readChar()
     if c == '\0': break
     result.add(c)
@@ -570,15 +572,15 @@ proc checkProgress(state: var TState) =
     
     assert p != nil
     var readP = @[p]
+    # TODO: Next line redundant?
     if select(readP) == 1 and readP.len == 0:
-      var output = state.progress.outPipe.readAll()
+      var output = state.progress.p.readAll(state.progress.outPipe)
       echo("Got output from ", state.progress.currentProc, ". Len = ",
            output.len)
       
-      writeLogs(state.logFile, state.progress.commitFile, output & "\n")
+      writeLogs(state.logFile, state.progress.commitFile, output)
     
     var exitCode = p.peekExitCode
-    #echo("Got exit code: ", exitCode, " Terminated? = ", exitCode != -1)
     if exitCode != -1:
       echo(state.progress.currentProc, " terminated")
       if exitCode == QuitSuccess:
@@ -590,7 +592,7 @@ proc checkProgress(state: var TState) =
         s = $state.progress.currentProc & " started."
         writeLogs(state.logFile, state.progress.commitFile, s & "\n")
       else:
-        var output = p.outputStream.readAll()
+        var output = state.progress.p.readAll(state.progress.outPipe)
         echo("Got output (after termination) from ",
              state.progress.currentProc, ". Len = ",
              output.len)
