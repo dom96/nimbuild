@@ -54,4 +54,4 @@ proc makeCommitPath*(platform, hash: string): string =
   return platform / hash.substr(0, 11)  # 11 Chars.
 
 proc makeZipPath*(platform, hash: string): string =
-  return platform / "nimrod_" / hash.substr(0, 11)
+  return platform / "nimrod_" & hash.substr(0, 11)

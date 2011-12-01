@@ -545,7 +545,7 @@ proc nextStage(state: var TState) =
     folderName.add("_csources")
     var saveAs = makeZipPath(state.platform, commitHash)
     saveAs.add("_csources")
-    saveAs.addFileExt("zip")
+    saveAs = saveAs.addFileExt("zip")
 
     # Remove the pre-zipped folder with the C sources.
     dRemoveDir(state.zipLoc / folderName)
@@ -560,10 +560,11 @@ proc nextStage(state: var TState) =
     echo("Builder done.")
 
 proc readAll(p: PProcess, s: PStream): string =
-  result = ""
+  result = "" 
+  var ps: seq[PProcess] = @[]
   while True:
-    var ps: seq[PProcess] = @[p]
-    if select(ps, 1) != 1: return
+    ps = @[p]
+    if select(ps, 10) != 1: return
     var c = s.readChar()
     if c == '\0': break
     result.add(c)
