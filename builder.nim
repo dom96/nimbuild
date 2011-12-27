@@ -1,6 +1,7 @@
 # This will build nimrod using the specified settings.
 import
-  osproc, json, sockets, os, streams, parsecfg, parseopt, strutils, ftpclient
+  osproc, json, sockets, os, streams, parsecfg, parseopt, strutils, ftpclient,
+  times
 import types
 
 const
@@ -57,6 +58,9 @@ type
     ftpUploadDir: string
   
     requestNewest: bool
+
+    lastMsgTime: float ## The last time a message was received from the hub.
+    pinged: float
 
 # Configuration
 proc parseConfig(state: var TState, path: string) =
@@ -128,6 +132,8 @@ proc defaultState(): TState =
 
   result.ftpUser = ""
   result.ftpPass = ""
+
+  result.pinged = -1.0
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: var TState, desc: string) =
@@ -726,6 +732,7 @@ proc fileInModified(json: PJsonNode, file: string): bool =
 
 proc handleMessage(state: var TState, line: string) =
   echo("Got message from hub: ", line)
+  state.lastMsgTime = epochTime()
   var json = parseJson(line)
   if json.existsKey("payload"):
     if json["rebuild"].bval:
@@ -748,13 +755,51 @@ proc handleMessage(state: var TState, line: string) =
       echo("Bootstrapping!")
       state.beginBuild()
 
-  if json.existsKey("ping"):
+  elif json.existsKey("ping"):
     # Website is making sure that the connection is alive.
     # All we do is change the "ping" to "pong" and reply.
     json["pong"] = json["ping"]
     json.delete("ping")
     state.sock.send($json & "\c\L")
     echo("Replying to Ping")
+ 
+  elif json.existsKey("pong"):
+    # Website replied. Connection is still alive.
+    state.pinged = -1.0
+    echo("Hub replied to PING. Still connected")
+  
+proc reconnect(state: var TState) =
+  echo("Disconnected from hub: ", OSErrorMsg())
+  state.sock.close()
+  var connected = false
+  while (not connected):
+    echo("Reconnecting...")
+    try:
+      connected = true
+      state.hubConnect(true)
+    except:
+      echo(getCurrentExceptionMsg())
+      connected = false
+
+    echo("Waiting 5 seconds...")
+    sleep(5000)
+
+proc checkTimeout(state: var TState) =
+  const timeoutSeconds = 110.0
+  # Check how long ago the last message was sent.
+  if epochTime() - state.lastMsgTime >= timeoutSeconds:
+    echo("We seem to be timing out! PINGing server.")
+    var jsonObject = newJObject()
+    jsonObject["ping"] = newJString(formatFloat(epochTime()))
+    state.sock.send($jsonObject & "\c\L")
+    state.pinged = epochTime()
+
+  if state.pinged != -1.0:
+    if epochTime() - state.pinged >= 5.0: # 5 seconds
+      echo("Server has not replied with a pong in 5 seconds.")
+      # TODO: What happens if the builder gets disconnected in the middle of a
+      # build? Maybe implement restoration of that.
+      reconnect(state)
 
 proc showHelp() =
   const help = """Usage: builder [options] configFile
@@ -797,22 +842,10 @@ when isMainModule:
       if state.sock.recvLine(line):
         state.handleMessage(line)
       else:
-        echo("Disconnected from hub: ", OSErrorMsg())
-        var connected = false
-        while (not connected):
-          echo("Reconnecting...")
-          try:
-            connected = true
-            state.hubConnect(true)
-          except:
-            echo(getCurrentExceptionMsg())
-            connected = false
-
-          echo("Waiting 5 seconds...")
-          sleep(5000)
+        reconnect(state)
     
     state.checkProgress()
   
-  
+    
   
 
