@@ -133,6 +133,7 @@ proc defaultState(): TState =
   result.ftpUser = ""
   result.ftpPass = ""
 
+  result.lastMsgTime = epochTime()
   result.pinged = -1.0
 
 # Build of Nimrod/tests/docs gen
@@ -787,14 +788,15 @@ proc reconnect(state: var TState) =
 proc checkTimeout(state: var TState) =
   const timeoutSeconds = 110.0
   # Check how long ago the last message was sent.
-  if epochTime() - state.lastMsgTime >= timeoutSeconds:
-    echo("We seem to be timing out! PINGing server.")
-    var jsonObject = newJObject()
-    jsonObject["ping"] = newJString(formatFloat(epochTime()))
-    state.sock.send($jsonObject & "\c\L")
-    state.pinged = epochTime()
+  if state.pinged == -1.0:
+    if epochTime() - state.lastMsgTime >= timeoutSeconds:
+      echo("We seem to be timing out! PINGing server.")
+      var jsonObject = newJObject()
+      jsonObject["ping"] = newJString(formatFloat(epochTime()))
+      state.sock.send($jsonObject & "\c\L")
+      state.pinged = epochTime()
 
-  if state.pinged != -1.0:
+  else:
     if epochTime() - state.pinged >= 5.0: # 5 seconds
       echo("Server has not replied with a pong in 5 seconds.")
       # TODO: What happens if the builder gets disconnected in the middle of a

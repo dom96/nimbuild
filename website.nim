@@ -370,10 +370,9 @@ proc parseMessage(state: var TState, mIndex: int, line: string) =
 
   elif json.existsKey("ping"):
     # Module thinks it's disconnected! Reply quickly!
-    var reply = newJObject()
-    reply["pong"] = reply["ping"]
-    reply.delete("ping")
-    m.sock.send($reply & "\c\L")
+    json["pong"] = json["ping"]
+    json.delete("ping")
+    m.sock.send($json & "\c\L")
 
   else:
     echo("[Fatal] Can't understand message from " & m.name & ": ",
