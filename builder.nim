@@ -24,7 +24,8 @@ type
     uploadTests, # FTP Upload #2
     runDocGen, # Doc gen
     runCSrcGen, zipCSrc, # csource gen
-    uploadLogs # FTP Upload #3
+    uploadLogs, # FTP Upload #3
+    noJob # FINISHED
 
   TProgress = object
     currentProc: TCurrentProc
@@ -335,6 +336,8 @@ proc beginBuild(state: var TState) =
                                     "checkout", ".")
   state.buildProgressing("Unstaging changes.")
 
+
+proc nextStage(state: var TState)
 proc setUploadLogs(state: var TState) =
   state.progress.currentProc = uploadLogs
 
@@ -350,6 +353,7 @@ proc setUploadLogs(state: var TState) =
               folderName / "log.txt", "log.txt", async = true)
   else:
     echo("Local builder, no need to upload logs. Build complete.")
+    state.nextStage()
 
 proc nextStage(state: var TState) =
   case state.progress.currentProc
@@ -558,6 +562,9 @@ proc nextStage(state: var TState) =
 
   of uploadLogs:
     echo("Builder done.")
+    state.progress.currentProc = noJob
+
+  of noJob: assert(false)
 
 proc readAll(p: PProcess, s: PStream): string =
   result = "" 
@@ -576,7 +583,7 @@ proc writeLogs(logFile, commitFile: TFile, s: string) =
   commitFile.flushFile()
 
 proc isProcess(currentProc: TCurrentProc): bool =
-  return currentProc notin {uploadNim, uploadTests, uploadLogs}
+  return currentProc notin {uploadNim, uploadTests, uploadLogs, noJob}
 
 proc checkProgress(state: var TState) =
   ## This is called from the main loop - checks the progress of the current

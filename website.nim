@@ -109,7 +109,12 @@ proc contains(platforms: HPlatformStatus,
 proc parseGreeting(state: var TState, client: var TSocket,
                    IPAddr: string, line: string): bool =
   # { "name": "modulename" }
-  var json = parseJson(line)
+  var json: PJsonNode
+  try:
+    json = parseJson(line)
+  except EJsonParsingError:
+    return False
+
   if IPAddr != "127.0.0.1":
     # Check for password
     var fail = true
@@ -575,6 +580,9 @@ when isMainModule:
             client.send("{ \"reply\": \"FAIL\" }\c\L")
             echo("Rejected ", IPAddr)
             client.close()
+        else:
+          client.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
+          client.close()
       else:
         # Message from a module
         state.handleModuleMsg(readSocks)
