@@ -768,10 +768,15 @@ proc handleMessage(state: var TState, line: string) =
     # Website replied. Connection is still alive.
     state.pinged = -1.0
     echo("Hub replied to PING. Still connected")
-  
-proc reconnect(state: var TState) =
-  echo("Disconnected from hub: ", OSErrorMsg())
+
+proc hubDisconnect(state: var TState) =
   state.sock.close()
+
+  state.lastMsgTime = epochTime()
+  state.pinged = -1.0
+
+proc reconnect(state: var TState) =
+  state.hubDisconnect()
   var connected = false
   while (not connected):
     echo("Reconnecting...")
@@ -787,21 +792,23 @@ proc reconnect(state: var TState) =
 
 proc checkTimeout(state: var TState) =
   const timeoutSeconds = 110.0
-  # Check how long ago the last message was sent.
-  if state.pinged == -1.0:
-    if epochTime() - state.lastMsgTime >= timeoutSeconds:
-      echo("We seem to be timing out! PINGing server.")
-      var jsonObject = newJObject()
-      jsonObject["ping"] = newJString(formatFloat(epochTime()))
-      state.sock.send($jsonObject & "\c\L")
-      state.pinged = epochTime()
 
-  else:
-    if epochTime() - state.pinged >= 5.0: # 5 seconds
-      echo("Server has not replied with a pong in 5 seconds.")
-      # TODO: What happens if the builder gets disconnected in the middle of a
-      # build? Maybe implement restoration of that.
-      reconnect(state)
+  if state.hubAddr != "127.0.0.1":
+    # Check how long ago the last message was sent.
+    if state.pinged == -1.0:
+      if epochTime() - state.lastMsgTime >= timeoutSeconds:
+        echo("We seem to be timing out! PINGing server.")
+        var jsonObject = newJObject()
+        jsonObject["ping"] = newJString(formatFloat(epochTime()))
+        state.sock.send($jsonObject & "\c\L")
+        state.pinged = epochTime()
+
+    else:
+      if epochTime() - state.pinged >= 5.0: # 5 seconds
+        echo("Server has not replied with a pong in 5 seconds.")
+        # TODO: What happens if the builder gets disconnected in the middle of a
+        # build? Maybe implement restoration of that.
+        reconnect(state)
 
 proc showHelp() =
   const help = """Usage: builder [options] configFile
@@ -844,6 +851,7 @@ when isMainModule:
       if state.sock.recvLine(line):
         state.handleMessage(line)
       else:
+        echo("Disconnected from hub: ", OSErrorMsg())
         reconnect(state)
     
     state.checkProgress()

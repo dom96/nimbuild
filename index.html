@@ -53,14 +53,27 @@
     <p>No commits found</p>
   #end if
   
-  #if state.platforms.len() > 0:
-    <p>Platforms: ${state.platforms.len}</p>
-    <p>Status: ${state.platforms[0].status.status}</p>
-    <p>${state.platforms[0].status.desc}</p>
+  <h3>Platforms</h3>
+  <table>
+    <tr>
+      <th>Platform</th>
+      <th>Lag</th>
+      <th>Status</th>
+      <th>Description</th>
+    </tr>
+  #for m in items(state.modules):
+    #if m.name == "builder":
+      #var platf = state.platforms[m.platform]
+      <tr>
+        <td>${m.platform}</td>
+        <td>${formatFloat(m.ping)}</td>
+        <td>${platf.status}</td>
+        <td>${platf.desc}</td>
+      </tr>
+    #end if
+  #end for
     
-  #else:
-    <p>Status: Idle</p>
-  #end if
+  </table>
   
   </div>
 </body>
