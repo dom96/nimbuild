@@ -354,7 +354,15 @@ proc setUploadLogs(state: var TState) =
     assert state.ftp.pwd().startsWith("/home/nimrod")
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
-    state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
+    try:
+      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
+    except EInvalidReply:
+      # Create `folderName`. This is for if the bootstrap fails, and doesn't
+      # get to the ftp portion, resulting in this folder not being created.
+      state.ftp.cd(state.ftpUploadDir / "commits")
+      state.ftp.createDir(folderName)
+      state.ftp.cd(folderName)
+      
     echo("Uploading log.txt")
     state.ftp.store(state.websiteLoc / "commits" /
               folderName / "log.txt", "log.txt", async = true)
