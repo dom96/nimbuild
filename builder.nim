@@ -268,7 +268,7 @@ proc cSrcGenSucceeded(state: var TState) =
 
 proc startMyProcess(state: var TState, cmd, workDir: string,
                     args: openarray[string]): PProcess =
-  result = startProcess(cmd, workDir, args, nil)
+  result = startProcess(cmd.changeFileExt(ExeExt), workDir, args, nil)
   state.progress.outPipe = result.outputStream
 
 proc dCopyFile(src, dest: string) =
