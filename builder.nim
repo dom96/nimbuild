@@ -386,7 +386,7 @@ proc nextStage(state: var TState) =
     else:
       # Same code as in ``of buildSh:``
       state.progress.currentProc = compileKoch
-      state.progress.p = state.startMyProcess("bin/nimrod",
+      state.progress.p = state.startMyProcess("bin" / "nimrod",
           state.nimLoc, "c", "koch.nim")
       state.buildProgressing("Compiling koch.nim")
   of clean:
@@ -401,7 +401,7 @@ proc nextStage(state: var TState) =
     state.buildProgressing("Compiling C sources")
   of buildSh:
     state.progress.currentProc = compileKoch
-    state.progress.p = state.startMyProcess("bin/nimrod",
+    state.progress.p = state.startMyProcess("bin" / "nimrod",
         state.nimLoc, "c", "koch.nim")
     state.buildProgressing("Compiling koch.nim")
   of compileKoch:
