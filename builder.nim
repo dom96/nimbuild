@@ -1,7 +1,7 @@
 # This will build nimrod using the specified settings.
 import
-  osproc, json, sockets, os, streams, parsecfg, parseopt, strutils, ftpclient,
-  times
+  osproc, json, sockets, asyncio, os, streams, parsecfg, parseopt, strutils,
+  ftpclient, times
 import types
 
 const
@@ -35,11 +35,12 @@ type
     payload: PJsonNode
     commitFile: TFile
 
-  TState = object
-    sock: TSocket
+  TState = object of TObject
+    dispatcher: PDispatcher
+    sock: PAsyncSocket
     status: TStatus ## Outcome of the build
     progress: TProgress ## Current progress
-    ftp: TFTPClient
+    ftp: PAsyncFTPClient
     skipCSource: bool ## Skip the process of building csources
     nimLoc: string ## Location of the nimrod repo
     websiteLoc: string ## Location of the website.
@@ -61,9 +62,12 @@ type
 
     lastMsgTime: float ## The last time a message was received from the hub.
     pinged: float
+    reconnecting: bool
+  
+  PState = ref TState
 
 # Configuration
-proc parseConfig(state: var TState, path: string) =
+proc parseConfig(state: PState, path: string) =
   var f = newFileStream(path, fmRead)
   if f != nil:
     var p: TCfgParser
@@ -126,7 +130,8 @@ proc parseConfig(state: var TState, path: string) =
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
 
-proc defaultState(): TState =
+proc defaultState(): PState =
+  new(result)
   result.hubAddr = "127.0.0.1"
   result.hubPass = ""
 
@@ -137,7 +142,7 @@ proc defaultState(): TState =
   result.pinged = -1.0
 
 # Build of Nimrod/tests/docs gen
-proc buildFailed(state: var TState, desc: string) =
+proc buildFailed(state: PState, desc: string) =
   state.status.status = sBuildFailure
   state.status.desc = desc
   var obj = newJObject()
@@ -148,7 +153,7 @@ proc buildFailed(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc buildProgressing(state: var TState, desc: string) =
+proc buildProgressing(state: PState, desc: string) =
   state.status.status = sBuildInProgress
   state.status.desc = desc
   var obj = newJObject()
@@ -159,7 +164,7 @@ proc buildProgressing(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc buildSucceeded(state: var TState) =
+proc buildSucceeded(state: PState) =
   state.status.status = sBuildSuccess
   var obj = newJObject()
   obj["status"] = newJInt(int(sBuildSuccess))
@@ -168,7 +173,7 @@ proc buildSucceeded(state: var TState) =
   state.sock.send($obj & "\c\L")
   echo("Build successfully completed")
 
-proc testingFailed(state: var TState, desc: string) =
+proc testingFailed(state: PState, desc: string) =
   state.status.status = sTestFailure
   state.status.desc = desc
   var obj = newJObject()
@@ -179,7 +184,7 @@ proc testingFailed(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc testProgressing(state: var TState, desc: string) =
+proc testProgressing(state: PState, desc: string) =
   state.status.status = sTestInProgress
   state.status.desc = desc
   var obj = newJObject()
@@ -190,7 +195,7 @@ proc testProgressing(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc testSucceeded(state: var TState, total, passed,
+proc testSucceeded(state: PState, total, passed,
                    skipped, failed: biggestInt) =
   state.status.status = sTestSuccess
   var obj = newJObject()
@@ -204,7 +209,7 @@ proc testSucceeded(state: var TState, total, passed,
   state.sock.send($obj & "\c\L")
   echo("Tests completed")
 
-proc docGenProgressing(state: var TState, desc: string) =
+proc docGenProgressing(state: PState, desc: string) =
   state.status.status = sDocGenInProgress
   state.status.desc = desc
   var obj = newJObject()
@@ -215,7 +220,7 @@ proc docGenProgressing(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc docGenFailed(state: var TState, desc: string) =
+proc docGenFailed(state: PState, desc: string) =
   state.status.status = sDocGenFailure
   state.status.desc = desc
   var obj = newJObject()
@@ -226,7 +231,7 @@ proc docGenFailed(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc docGenSucceeded(state: var TState) =
+proc docGenSucceeded(state: PState) =
   state.status.status = sDocGenSuccess
   var obj = newJObject()
   obj["status"] = newJInt(int(sDocGenSuccess))
@@ -235,7 +240,7 @@ proc docGenSucceeded(state: var TState) =
   state.sock.send($obj & "\c\L")
   echo("Doc gen success")
 
-proc cSrcGenProgressing(state: var TState, desc: string) =
+proc cSrcGenProgressing(state: PState, desc: string) =
   state.status.status = sCSrcGenInProgress
   state.status.desc = desc
   var obj = newJObject()
@@ -246,7 +251,7 @@ proc cSrcGenProgressing(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc cSrcGenFailed(state: var TState, desc: string) =
+proc cSrcGenFailed(state: PState, desc: string) =
   state.status.status = sCSrcGenFailure
   state.status.desc = desc
   var obj = newJObject()
@@ -257,7 +262,7 @@ proc cSrcGenFailed(state: var TState, desc: string) =
   state.sock.send($obj & "\c\L")
   echo(desc)
 
-proc cSrcGenSucceeded(state: var TState) =
+proc cSrcGenSucceeded(state: PState) =
   state.status.status = sCSrcGenSuccess
   var obj = newJObject()
   obj["status"] = newJInt(int(sCSrcGenSuccess))
@@ -266,7 +271,7 @@ proc cSrcGenSucceeded(state: var TState) =
   state.sock.send($obj & "\c\L")
   echo("csource gen success")
 
-proc startMyProcess(state: var TState, cmd, workDir: string,
+proc startMyProcess(state: PState, cmd, workDir: string,
                     args: openarray[string]): PProcess =
   if isAbsolute(cmd):
     result = startProcess(cmd.changeFileExt(ExeExt), workDir, args, nil)
@@ -332,7 +337,7 @@ proc tallyTestResults(path: string):
   
   return (total, passed, skipped, total - (passed + skipped))
 
-proc beginBuild(state: var TState) =
+proc beginBuild(state: PState) =
   ## This procedure starts the process of building nimrod. All it does
   ## is create a ``progress`` object, call ``buildProgressing()``,
   ## execute the ``git checkout .`` command and open a commit specific log file.
@@ -348,33 +353,33 @@ proc beginBuild(state: var TState) =
   state.buildProgressing("Unstaging changes.")
 
 
-proc nextStage(state: var TState)
-proc setUploadLogs(state: var TState) =
+proc nextStage(state: PState)
+proc setUploadLogs(state: PState) =
   state.progress.currentProc = uploadLogs
 
   # Upload the log.txt file
   if state.hubAddr != "127.0.0.1":
-    state.ftp.connect()
-    assert state.ftp.pwd().startsWith("/home/nimrod")
+    state.ftp[].connect()
+    assert state.ftp[].pwd().startsWith("/home/nimrod")
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
     try:
-      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
+      state.ftp[].cd(state.ftpUploadDir / "commits" / folderName)
     except EInvalidReply:
       # Create `folderName`. This is for if the bootstrap fails, and doesn't
       # get to the ftp portion, resulting in this folder not being created.
-      state.ftp.cd(state.ftpUploadDir / "commits")
-      state.ftp.createDir(folderName)
-      state.ftp.cd(folderName)
+      state.ftp[].cd(state.ftpUploadDir / "commits")
+      state.ftp[].createDir(folderName)
+      state.ftp[].cd(folderName)
       
     echo("Uploading log.txt")
-    state.ftp.store(state.websiteLoc / "commits" /
+    state.ftp[].store(state.websiteLoc / "commits" /
               folderName / "log.txt", "log.txt", async = true)
   else:
     echo("Local builder, no need to upload logs. Build complete.")
     state.nextStage()
 
-proc nextStage(state: var TState) =
+proc nextStage(state: PState) =
   case state.progress.currentProc
   of unstage:
     state.progress.currentProc = pullProc
@@ -448,14 +453,12 @@ proc nextStage(state: var TState) =
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadNim
     if state.hubAddr != "127.0.0.1":
-      state.ftp = FTPClient(state.hubAddr, user = state.ftpUser,
-                            pass = state.ftpPass)
-      state.ftp.connect()
-      assert state.ftp.pwd().startsWith("/home/nimrod")
-      state.ftp.cd(state.ftpUploadDir / "commits")
-      state.ftp.createDir(fileName, true)
-      state.ftp.chmod(fileName, webFP)
-      state.ftp.store(state.websiteLoc / "commits" / saveAs, saveAs,
+      state.ftp[].connect()
+      assert state.ftp[].pwd().startsWith("/home/nimrod")
+      state.ftp[].cd(state.ftpUploadDir / "commits")
+      state.ftp[].createDir(fileName, true)
+      state.ftp[].chmod(fileName, webFP)
+      state.ftp[].store(state.websiteLoc / "commits" / saveAs, saveAs,
                       async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
@@ -485,10 +488,10 @@ proc nextStage(state: var TState) =
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadTests
     if state.hubAddr != "127.0.0.1":
-      state.ftp.connect()
-      assert state.ftp.pwd().startsWith("/home/nimrod")
-      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
-      state.ftp.store(state.websiteLoc / "commits" /
+      state.ftp[].connect()
+      assert state.ftp[].pwd().startsWith("/home/nimrod")
+      state.ftp[].cd(state.ftpUploadDir / "commits" / folderName)
+      state.ftp[].store(state.websiteLoc / "commits" /
                       folderName / "testresults.html", "testresults.html",
                       async = true)
       testProgressing(state, "Uploading test results.")
@@ -604,7 +607,7 @@ proc writeLogs(logFile, commitFile: TFile, s: string) =
 proc isProcess(currentProc: TCurrentProc): bool =
   return currentProc notin {uploadNim, uploadTests, uploadLogs, noJob}
 
-proc checkProgress(state: var TState) =
+proc checkProgress(state: PState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
   if isInProgress(state.status.status) and 
@@ -667,67 +670,87 @@ proc checkProgress(state: var TState) =
                         " failed with exit code 1")
        
         state.setUploadLogs()
-        
-  if state.progress.currentProc in {uploadNim, uploadTests, uploadLogs}:
-    if state.hubAddr != "127.0.0.1":
-      var event: TFTPEvent
-      if state.ftp.poll(event):
-        case event.typ
-        of EvStore:
-          echo("Upload of ", event.filename,
-               " complete. Continuing to next stage.")
-          var path = state.ftpUploadDir /
-                     event.filename[state.websiteLoc.len().. -1]
-          echo("Changing permissions for ", path)
-          state.ftp.chmod(path, webFP)
 
-          state.ftp.close()
-          state.nextStage()
-        of EvTransferProgress:
-          # TODO: Output this less often.
-          echo(event.speed div 1000, " kb/s")
-        else: assert(false)
-    else: assert(false)
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc hubConnect(state: var TState, reconnect: bool) =
-  state.sock = socket()
+proc hubConnect(state: PState, reconnect: bool)
+proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
+  var state = PState(userArg)
+  try:
+    # Send greeting
+    var obj = newJObject()
+    obj["name"] = newJString("builder")
+    obj["platform"] = newJString(state.platform)
+    if state.hubPass != "": obj["pass"] = newJString(state.hubPass)
+    state.sock.send($obj & "\c\L")
+    # Wait for reply.
+    var readSocks = @[state.sock.getSocket]
+    # TODO: Don't use select here. Just sleep(1500). Then readLine.
+    if select(readSocks, 1500) == 1 and readSocks.len == 0:
+      var line = ""
+      doAssert state.sock.recvLine(line)
+      doAssert parseReply(line, "OK")
+      echo("The hub accepted me!")
+
+      if state.requestNewest and not state.reconnecting:
+        echo("Requesting newest commit.")
+        var req = newJObject()
+        req["latestCommit"] = newJNull()
+        state.sock.send($req & "\c\L")
+
+    else:
+      raise newException(EInvalidValue,
+                         "Hub didn't accept me. Waited 1.5 seconds.")
+  except EOS:
+    echo(getCurrentExceptionMsg())
+    s.close()
+    echo("Waiting 5 seconds...")
+    sleep(5000)
+    hubConnect(state, true)
+
+proc handleHubMessage(s: PAsyncSocket, userArg: PUserArg)
+proc hubConnect(state: PState, reconnect: bool) =
+  state.sock = AsyncSocket(userArg = state)
+  state.sock.handleConnect = handleConnect
+  state.sock.handleRead = handleHubMessage
+  state.reconnecting = reconnect
   state.sock.connect(state.hubAddr, TPort(state.hubPort))
-  
-  # Send greeting
-  var obj = newJObject()
-  obj["name"] = newJString("builder")
-  obj["platform"] = newJString(state.platform)
-  if state.hubPass != "": obj["pass"] = newJString(state.hubPass)
-  state.sock.send($obj & "\c\L")
-  # Wait for reply.
-  var readSocks = @[state.sock]
-  if select(readSocks, 1500) == 1 and readSocks.len == 0:
-    var line = ""
-    assert state.sock.recvLine(line)
-    assert parseReply(line, "OK")
-    echo("The hub accepted me!")
+  state.dispatcher.register(state.sock)
 
-    if state.requestNewest and not reconnect:
-      echo("Requesting newest commit.")
-      var req = newJObject()
-      req["latestCommit"] = newJNull()
-      state.sock.send($req & "\c\L")
+proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PUserArg) =
+  var state = PState(userArg)
+  assert(state.progress.currentProc in {uploadNim, uploadTests, uploadLogs})
+  if state.hubAddr != "127.0.0.1":
+    case ev.typ
+    of EvStore:
+      echo("Upload of ", ev.filename,
+           " complete. Continuing to next stage.")
+      var path = state.ftpUploadDir /
+                 ev.filename[state.websiteLoc.len().. -1]
+      echo("Changing permissions for ", path)
+      state.ftp[].chmod(path, webFP)
 
-  else:
-    raise newException(EInvalidValue,
-                       "Hub didn't accept me. Waited 1.5 seconds.")
+      state.ftp[].close()
+      state.nextStage()
+    of EvTransferProgress:
+      # TODO: Output this less often.
+      echo(ev.speed div 1000, " kb/s")
+    else: assert(false)
+  else: assert(false)
 
-proc open(configPath: string): TState =
+proc open(configPath: string): PState =
   result = defaultState()
   # Get config
   parseConfig(result, configPath)
   if not existsDir(result.nimLoc):
     quit(result.nimLoc & " does not exist!", quitFailure)
+  
+  # Init dispatcher
+  result.dispatcher = newDispatcher()
   
   # Connect to the hub
   result.hubConnect(false)
@@ -738,12 +761,20 @@ proc open(configPath: string): TState =
   # Init status
   result.status = initStatus()
 
+  # Init ftp client.
+  if result.hubAddr != "127.0.0.1":
+    result.ftp = AsyncFTPClient(result.hubAddr,
+                          user = result.ftpUser, pass = result.ftpPass,
+                          userArg = result)
+    result.ftp.handleEvent = handleFtp
+    result.dispatcher.register(result.ftp)
+
 proc fileInModified(json: PJsonNode, file: string): bool =
   for commit in items(json["commits"].elems):
     for f in items(commit["modified"].elems):
       if f.str == file: return true
 
-proc handleMessage(state: var TState, line: string) =
+proc parseMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
   state.lastMsgTime = epochTime()
   var json = parseJson(line)
@@ -781,28 +812,27 @@ proc handleMessage(state: var TState, line: string) =
     state.pinged = -1.0
     echo("Hub replied to PING. Still connected")
 
-proc hubDisconnect(state: var TState) =
+proc hubDisconnect(state: PState) =
   state.sock.close()
 
   state.lastMsgTime = epochTime()
   state.pinged = -1.0
 
-proc reconnect(state: var TState) =
+proc reconnect(state: PState) =
   state.hubDisconnect()
-  var connected = false
-  while (not connected):
-    echo("Reconnecting...")
-    try:
-      connected = true
-      state.hubConnect(true)
-    except:
-      echo(getCurrentExceptionMsg())
-      connected = false
+  state.hubConnect(true)
 
-    echo("Waiting 5 seconds...")
-    sleep(5000)
+proc handleHubMessage(s: PAsyncSocket, userArg: PUserArg) =
+  var state = PState(userArg)
+  var line = ""
+  doAssert state.sock.recvLine(line)
+  if line != "":
+    state.parseMessage(line)
+  else:
+    echo("Disconnected from hub: ", OSErrorMsg())
+    reconnect(state)
 
-proc checkTimeout(state: var TState) =
+proc checkTimeout(state: PState) =
   const timeoutSeconds = 110.0
 
   if state.hubAddr != "127.0.0.1":
@@ -851,20 +881,8 @@ proc parseArgs(): string =
 when isMainModule:
   echo("Started builder: built at ", CompileDate, " ", CompileTime)
   var state = builder.open(parseArgs())
-  var readSock: seq[TSocket] = @[]
   while True:
-    readSock = @[state.sock]
-    var timeout = 200
-    if state.progress.currentProc in {uploadNim, uploadTests, uploadLogs}:
-      timeout = 1
-
-    if select(readSock, timeout) == 1 and readSock.len == 0:
-      var line = ""
-      if state.sock.recvLine(line):
-        state.handleMessage(line)
-      else:
-        echo("Disconnected from hub: ", OSErrorMsg())
-        reconnect(state)
+    discard state.dispatcher.poll()
     
     state.checkProgress()
   
