@@ -49,7 +49,7 @@ proc handleWebMessage(state: PState, line: string) =
       state.ircClient[].privmsg(joinChans[0], message)
 
 proc hubConnect(state: PState)
-proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
+proc handleConnect(s: PAsyncSocket, userArg: PObject) =
   let state = PState(userArg)
   try:
     # Send greeting
@@ -75,10 +75,11 @@ proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
     sleep(5000)
     state.hubConnect()
 
-proc handleRead(s: PAsyncSocket, userArg: PUserArg) =
+proc handleRead(s: PAsyncSocket, userArg: PObject) =
   let state = PState(userArg)
   var line = ""
-  if state.sock.recvLine(line):
+  doAssert state.sock.recvLine(line)
+  if line != "":
     # Handle the message
     state.handleWebMessage(line)
   else:
@@ -95,7 +96,7 @@ proc hubConnect(state: PState) =
 
   state.dispatcher.register(state.sock)
 
-proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PUserArg) =
+proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
   let state = PState(userArg)
   case event.typ
   of EvDisconnected:

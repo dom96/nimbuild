@@ -72,9 +72,9 @@ proc parseConfig(state: PState, path: string) =
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
 
-proc handleAccept(s: PAsyncSocket, arg: PUserArg)
+proc handleAccept(s: PAsyncSocket, arg: PObject)
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, userArg: PUserArg)
+                   input: string, headers: PStringTable, userArg: PObject)
 proc open(configPath: string): PState =
   new(result)
   parseConfig(result, configPath)
@@ -113,7 +113,7 @@ proc contains(platforms: HPlatformStatus,
     if platform == p:
       return True
 
-proc handleModuleMsg(s: PAsyncSocket, arg: PUserArg)
+proc handleModuleMsg(s: PAsyncSocket, arg: PObject)
 proc parseGreeting(state: PState, client: PAsyncSocket,
                    IPAddr: string, line: string): bool =
   # { "name": "modulename" }
@@ -394,7 +394,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
          line)
     assert(false)
 
-proc handleModuleMsg(s: PAsyncSocket, arg: PUserArg) =
+proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
   var state = PState(arg)
   # Module sent a message to us
   var disconnect: seq[TModule] = @[] # Modules which disconnected
@@ -541,7 +541,7 @@ proc safeSend(client: TSocket, data: string) =
     echo("[Warning] Got error from send(): ", OSErrorMsg())
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, userArg: PUserArg) =
+                   input: string, headers: PStringTable, userArg: PObject) =
   var state = PState(userArg)
   echo(headers["HTTP_USER_AGENT"])
   echo(headers)
@@ -568,7 +568,7 @@ proc cleanup(state: PState) =
   
   state.sock.close()
 
-proc handleAccept(s: PAsyncSocket, arg: PUserArg) =
+proc handleAccept(s: PAsyncSocket, arg: PObject) =
   var state = PState(arg)
   # Connection from a module
   var (client, IPAddr) = s.acceptAddr()

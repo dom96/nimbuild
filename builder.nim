@@ -678,7 +678,7 @@ proc parseReply(line: string, expect: string): Bool =
   return jsonDoc["reply"].str == expect
 
 proc hubConnect(state: PState, reconnect: bool)
-proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
+proc handleConnect(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   try:
     # Send greeting
@@ -712,7 +712,7 @@ proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
     sleep(5000)
     hubConnect(state, true)
 
-proc handleHubMessage(s: PAsyncSocket, userArg: PUserArg)
+proc handleHubMessage(s: PAsyncSocket, userArg: PObject)
 proc hubConnect(state: PState, reconnect: bool) =
   state.sock = AsyncSocket(userArg = state)
   state.sock.handleConnect = handleConnect
@@ -721,7 +721,7 @@ proc hubConnect(state: PState, reconnect: bool) =
   state.sock.connect(state.hubAddr, TPort(state.hubPort))
   state.dispatcher.register(state.sock)
 
-proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PUserArg) =
+proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PObject) =
   var state = PState(userArg)
   assert(state.progress.currentProc in {uploadNim, uploadTests, uploadLogs})
   if state.hubAddr != "127.0.0.1":
@@ -822,7 +822,7 @@ proc reconnect(state: PState) =
   state.hubDisconnect()
   state.hubConnect(true)
 
-proc handleHubMessage(s: PAsyncSocket, userArg: PUserArg) =
+proc handleHubMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   var line = ""
   doAssert state.sock.recvLine(line)

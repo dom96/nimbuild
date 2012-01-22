@@ -25,7 +25,7 @@ proc parseReply(line: string, expect: string): Bool =
   return jsonDoc["reply"].str == expect
 
 proc hubConnect(state: PState)
-proc handleConnect(s: PAsyncSocket, userArg: PUserArg) =
+proc handleConnect(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   try:
     # Send greeting
@@ -54,7 +54,7 @@ proc handleMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
 
 
-proc handleModuleMessage(s: PAsyncSocket, userArg: PUserArg) =
+proc handleModuleMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   var line = ""
   doAssert state.sock.recvLine(line)
@@ -79,7 +79,7 @@ proc hubConnect(state: PState) =
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
                    input: string, headers: PStringTable,
-                   userArg: PUserArg)
+                   userArg: PObject)
 proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   new(result)
   
@@ -108,7 +108,7 @@ proc safeSend(client: TSocket, data: string) =
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
                    input: string, headers: PStringTable,
-                   userArg: PUserArg) =
+                   userArg: PObject) =
   var state = PState(userArg)
   var hostname = ""
   try:
