@@ -1,5 +1,6 @@
 ## This is the SCGI Website and the hub.
-import sockets, json, strutils, os, scgi, strtabs, times, streams, parsecfg
+import 
+  sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg
 import types, db
 
 const
@@ -8,10 +9,12 @@ const
 type
   HPlatformStatus = seq[tuple[platform: string, status: TStatus]]
   
-  TState = object
-    sock: TSocket ## Hub server socket. All modules connect to this.
+  PState = ref TState
+  TState = object of TObject
+    dispatcher: PDispatcher
+    sock: PAsyncSocket ## Hub server socket. All modules connect to this.
     modules: seq[TModule]
-    scgi: TScgiState
+    scgi: PAsyncScgiState
     database: TDb
     platforms: HPlatformStatus
     password: string ## The password that foreign modules need to be accepted.
@@ -22,15 +25,16 @@ type
 
   TModule = object
     name: string
-    sock: TSocket ## Client socket
+    sock: PAsyncSocket ## Client socket
     connected: bool
     platform: string
     lastPong: float
     pinged: bool # whether we are waiting for a pong from the module.
     ping: float # in seconds
     ip: string # IP address this module is connecting from
+    delegID: PDelegate
 
-proc parseConfig(state: var TState, path: string) =
+proc parseConfig(state: PState, path: string) =
   var f = newFileStream(path, fmRead)
   if f != nil:
     var p: TCfgParser
@@ -68,18 +72,26 @@ proc parseConfig(state: var TState, path: string) =
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
 
-proc open(configPath: string): TState =
+proc handleAccept(s: PAsyncSocket, arg: PObject)
+proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
+                   input: string, headers: PStringTable, userArg: PObject)
+proc open(configPath: string): PState =
+  new(result)
   parseConfig(result, configPath)
+  result.dispatcher = newDispatcher()
 
-  result.sock = socket()
-  if result.sock == InvalidSocket: OSError()
+  result.sock = AsyncSocket(userArg = result)
   result.sock.bindAddr(TPort(result.bindPort), result.bindAddr)
   result.sock.listen()
+  result.sock.handleAccept = handleAccept
   result.modules = @[]
   result.platforms = @[]
   
+  result.dispatcher.register(result.sock)
+  
   # Open scgi instance
-  result.scgi.open(TPort(result.scgiPort))
+  result.scgi = open(handleRequest, TPort(result.scgiPort), userArg = result)
+  result.dispatcher.register(result.scgi)
   
   # Connect to the database
   try:
@@ -88,11 +100,6 @@ proc open(configPath: string): TState =
     quit("Couldn't connect to redis: " & OSErrorMsg())
 
 # Modules
-proc populateReadSocks(state: var TState): seq[TSocket] =
-  result = @[]
-  for i in items(state.modules):
-    result.add(i.sock)
-  result.add(state.sock)
 
 proc contains(modules: seq[TModule], name: string): bool =
   for i in items(modules):
@@ -106,7 +113,8 @@ proc contains(platforms: HPlatformStatus,
     if platform == p:
       return True
 
-proc parseGreeting(state: var TState, client: var TSocket,
+proc handleModuleMsg(s: PAsyncSocket, arg: PObject)
+proc parseGreeting(state: PState, client: PAsyncSocket,
                    IPAddr: string, line: string): bool =
   # { "name": "modulename" }
   var json: PJsonNode
@@ -144,7 +152,13 @@ proc parseGreeting(state: var TState, client: var TSocket,
       echo("Platform(", module.platform, ") already exists.")
       return False
 
+  # Add this module to the dispatcher.
+  client.handleRead = handleModuleMsg
+  client.userArg = state
+  module.delegID = state.dispatcher.register(client)
+
   state.modules.add(module)
+  
   return True
 
 proc `[]`*(ps: HPlatformStatus,
@@ -179,26 +193,27 @@ proc uniqueMName(module: TModule): string =
   result.add module.platform
   result.add "(" & module.ip & ")"
 
-proc remove(state: var TState, module: TModule) =
-  for i in 0..len(state.modules):
+proc remove(state: PState, module: TModule) =
+  for i in 0..len(state.modules)-1:
     var m = state.modules[i]
     if m.name == module.name and
        m.platform == module.platform and 
        m.ip == module.ip:
+      state.dispatcher.unregister(state.modules[i].delegID)
       state.modules[i].sock.close()
       echo(uniqueMName(state.modules[i]), " disconnected.")
 
       # if module is a builder remove it from platforms.
-      if state.modules[i].name == "builder":
-        for p in 0..len(state.platforms):
-          if state.platforms[p].platform == state.modules[i].platform:
+      if m.name == "builder":
+        for p in 0..len(state.platforms)-1:
+          if state.platforms[p].platform == m.platform:
             state.platforms.delete(p)
             break
-      
+
       state.modules.delete(i)
       return
 
-proc setStatus(state: var TState, p: string, status: TStatusEnum,
+proc setStatus(state: PState, p: string, status: TStatusEnum,
                desc, hash: string) =
   var s = state.platforms[p]
   s.status = status
@@ -210,7 +225,7 @@ proc setStatus(state: var TState, p: string, status: TStatusEnum,
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
 
-proc parseMessage(state: var TState, mIndex: int, line: string) =
+proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
   if json.existsKey("status"):
@@ -378,14 +393,19 @@ proc parseMessage(state: var TState, mIndex: int, line: string) =
     echo("[Fatal] Can't understand message from " & m.name & ": ",
          line)
     assert(false)
-      
-proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
+
+proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
+  var state = PState(arg)
+  # Module sent a message to us
   var disconnect: seq[TModule] = @[] # Modules which disconnected
   for i in 0..state.modules.len()-1:
     var m = state.modules[i]
-    if m.sock notin readSocks:
+    if m.sock == s:
       var line = ""
-      if recvLine(m.sock, line):
+      if recvLine(m.sock.getSocket, line):
+        if line == "": 
+          disconnect.add(m)
+          continue
         echo("Got line from $1: $2" % [m.name, line])
 
         # Getting a message is a sign of the module still being alive.
@@ -400,7 +420,7 @@ proc handleModuleMsg(state: var TState, readSocks: seq[TSocket]) =
   for m in items(disconnect):
     state.remove(m)
 
-proc handlePings(state: var TState) =
+proc handlePings(state: PState) =
   var remove: seq[TModule] = @[] # Modules that have timed out.
   for i in 0..state.modules.len-1:
     template module: expr = state.modules[i]
@@ -437,7 +457,7 @@ proc getUrl(c: TCommit, p: TPlatform): tuple[weburl, logurl: string] =
   var logurl = joinUrl(weburl, "log.txt")
   return (weburl, logurl)
 
-proc genCssPath(state: TState): string =
+proc genCssPath(state: PState): string =
   var reqPath = state.scgi.headers["REQUEST_URI"]
   if reqPath.endswith("/"):
     return ""
@@ -520,9 +540,9 @@ proc safeSend(client: TSocket, data: string) =
   except EOS:
     echo("[Warning] Got error from send(): ", OSErrorMsg())
 
-proc handleRequest(state: var TState) =
-  var client = state.scgi.client
-  var headers = state.scgi.headers
+proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
+                   input: string, headers: PStringTable, userArg: PObject) =
+  var state = PState(userArg)
   echo(headers["HTTP_USER_AGENT"])
   echo(headers)
   if headers["REQUEST_METHOD"] == "GET":
@@ -540,13 +560,35 @@ proc handleRequest(state: var TState) =
     client.safeSend("Status: 405 Method Not Allowed\c\L\c\L")
     client.close()
 
-proc cleanup(state: var TState) =
+proc cleanup(state: PState) =
   echo("^C detected. Cleaning up...")
   for m in items(state.modules):
     # TODO: Send something to the modules to warn them?
     m.sock.close()
   
   state.sock.close()
+
+proc handleAccept(s: PAsyncSocket, arg: PObject) =
+  var state = PState(arg)
+  # Connection from a module
+  var (client, IPAddr) = s.acceptAddr()
+  var clientS = @[client.getSocket]
+  # Wait 1.5 seconds for a greeting.
+  # TODO: Don't block here waiting for the module. Add field which specifies
+  # the time that it connected at....
+  if select(clientS, 1500) == 1:
+    var line = ""
+    doAssert client.recvLine(line)
+    if state.parseGreeting(client, IPAddr, line):
+      # Reply to the module
+      client.send("{ \"reply\": \"OK\" }\c\L")
+    else:
+      client.send("{ \"reply\": \"FAIL\" }\c\L")
+      echo("Rejected ", IPAddr)
+      client.close()
+  else:
+    client.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
+    client.close()
 
 when isMainModule:
   var configPath = ""
@@ -560,38 +602,11 @@ when isMainModule:
 
   var state = website.open(configPath)
   #proc main() =
-  var readSocks: seq[TSocket] = @[]
   while True:
     try:
-      if state.scgi.next(200):
-        handleRequest(state)
+      doAssert state.dispatcher.poll()
     except EScgi:
-      echo("Got erroneous message from web server")
-    
-    readSocks = state.populateReadSocks()
-    if select(readSocks, 10) != 0:
-      if state.sock notin readSocks:
-        # Connection from a module
-        var (client, IPAddr) = state.sock.acceptAddr()
-        if client == InvalidSocket: OSError()
-        var clientS = @[client]
-        # Wait 1.5 seconds for a greeting.
-        if select(clientS, 1500) == 1:
-          var line = ""
-          assert client.recvLine(line)
-          if state.parseGreeting(client, IPAddr, line):
-            # Reply to the module
-            client.send("{ \"reply\": \"OK\" }\c\L")
-          else:
-            client.send("{ \"reply\": \"FAIL\" }\c\L")
-            echo("Rejected ", IPAddr)
-            client.close()
-        else:
-          client.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
-          client.close()
-      else:
-        # Message from a module
-        state.handleModuleMsg(readSocks)
+      echo("[Scgi] Got erronous message from http server.")
     
     state.handlePings()
     

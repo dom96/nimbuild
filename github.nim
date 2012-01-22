@@ -1,4 +1,5 @@
-import strtabs, sockets, scgi, strutils, os, json, osproc, streams
+import strtabs, sockets, asyncio, scgi, strutils, os, json,
+  osproc, streams, times
 from cgi import URLDecode
 import types
 
@@ -6,12 +7,16 @@ const
   ghRepos = ["https://github.com/Araq/Nimrod"]
 
 type
-  TState = object
-    sock: TSocket
-    scgi: TScgiState
+  PState = ref TState
+  TState = object of TObject
+    dispatcher: PDispatcher
+    sock: PAsyncSocket
+    scgi: PAsyncScgiState
     platform: string
 
     hubPort: TPort
+
+    timeReconnected: float
 
 # Communication
 
@@ -19,37 +24,74 @@ proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc hubConnect(state: var TState) =
-  state.sock = socket()
-  state.sock.connect("127.0.0.1", state.hubPort)
-  state.platform = "linux-x86"
-  
-  # Send greeting
-  var obj = newJObject()
-  obj["name"] = newJString("github")
-  obj["platform"] = newJString(state.platform)
-  state.sock.send($obj & "\c\L")
-  # Wait for reply.
-  var readSocks = @[state.sock]
-  if select(readSocks, 1500) == 1 and readSocks.len == 0:
+proc hubConnect(state: PState)
+proc handleConnect(s: PAsyncSocket, userArg: PObject) =
+  var state = PState(userArg)
+  try:
+    # Send greeting
+    var obj = newJObject()
+    obj["name"] = newJString("github")
+    obj["platform"] = newJString(state.platform)
+    state.sock.send($obj & "\c\L")
+    # Wait for reply.
     var line = ""
-    assert state.sock.recvLine(line)
-    assert parseReply(line, "OK")
-    echo("The hub accepted me!")
-  else:
-    raise newException(EInvalidValue,
-                       "Hub didn't accept me. Waited 1.5 seconds.")
+    sleep(1500)
+    if state.sock.recvLine(line):
+      assert(line != "")
+      doAssert parseReply(line, "OK")
+      echo("The hub accepted me!")
+    else:
+      raise newException(EInvalidValue,
+                         "Hub didn't accept me. Waited 1.5 seconds.")
+  except EOS:
+    echo(getCurrentExceptionMsg())
+    s.close()
+    echo("Waiting 5 seconds.")
+    sleep(5000)
+    state.hubConnect()
 
-proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): TState =
+proc handleMessage(state: PState, line: string) =
+  echo("Got message from hub: ", line)
+
+
+proc handleModuleMessage(s: PAsyncSocket, userArg: PObject) =
+  var state = PState(userArg)
+  var line = ""
+  doAssert state.sock.recvLine(line)
+  if line != "":
+    state.handleMessage(line)
+  else:
+    state.sock.close()
+    echo("Disconnected from hub: ", OSErrorMsg())
+    echo("Reconnecting...")
+    state.hubConnect()
+
+proc hubConnect(state: PState) =
+  state.sock = AsyncSocket()
+  state.sock.connect("127.0.0.1", state.hubPort)
+  state.sock.userArg = state
+  state.sock.handleConnect = handleConnect
+  state.sock.handleRead = handleModuleMessage
+  state.dispatcher.register(state.sock)
+  
+  state.platform = "linux-x86"
+  state.timeReconnected = -1.0
+
+proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
+                   input: string, headers: PStringTable,
+                   userArg: PObject)
+proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
+  new(result)
+  
+  result.dispatcher = newDispatcher()
+  
   result.hubPort = port
 
   result.hubConnect()
   
   # Open scgi stuff
-  open(result.scgi, scgiPort)
-
-proc handleMessage(state: TState, line: string) =
-  echo("Got message from hub: ", line)
+  result.scgi = open(handleRequest, scgiPort, userArg = result)
+  result.dispatcher.register(result.scgi)
 
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
   var obj = newJObject()
@@ -64,11 +106,10 @@ proc safeSend(client: TSocket, data: string) =
   except EOS:
     echo("[Warning] Got error from send(): ", OSErrorMsg())
 
-proc handleRequest(state: var TState) =
-  var client = state.scgi.client
-  var input = state.scgi.input
-  var headers = state.scgi.headers
-  
+proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
+                   input: string, headers: PStringTable,
+                   userArg: PObject) =
+  var state = PState(userArg)
   var hostname = ""
   try:
     hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
@@ -103,31 +144,5 @@ proc handleRequest(state: var TState) =
 
 when isMainModule:
   var state = open()
-  var readSock: seq[TSocket] = @[]
-  while True:
-    readSock = @[state.sock]
-    if state.scgi.next(200):
-      handleRequest(state)
-    
-    if select(readSock, 10) == 1 and readSock.len == 0:
-      var line = ""
-      if state.sock.recvLine(line):
-        state.handleMessage(line)
-      else:
-        echo("Disconnected from hub: ", OSErrorMsg())
-        var connected = false
-        while (not connected):
-          echo("Reconnecting...")
-          try:
-            connected = true
-            state.hubConnect()
-          except:
-            echo(getCurrentExceptionMsg())
-            connected = false
+  while state.dispatcher.poll(-1): nil
 
-          echo("Waiting 5 seconds...")
-          sleep(5000)
-            
-    #state.checkProgress()
-    
-    
