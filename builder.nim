@@ -825,7 +825,8 @@ proc reconnect(state: PState) =
 proc handleHubMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   var line = ""
-  doAssert state.sock.recvLine(line)
+  if not state.sock.recvLine(line):
+    echo(OSErrorMsg())
   if line != "":
     state.parseMessage(line)
   else:
@@ -842,7 +843,14 @@ proc checkTimeout(state: PState) =
         echo("We seem to be timing out! PINGing server.")
         var jsonObject = newJObject()
         jsonObject["ping"] = newJString(formatFloat(epochTime()))
-        state.sock.send($jsonObject & "\c\L")
+        try:
+          state.sock.send($jsonObject & "\c\L")
+        except EOS:
+          echo(OSErrorMsg())
+          echo("Disconnected from server due to ^^")
+          reconnect(state)
+          return
+          
         state.pinged = epochTime()
 
     else:

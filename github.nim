@@ -57,7 +57,8 @@ proc handleMessage(state: PState, line: string) =
 proc handleModuleMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   var line = ""
-  doAssert state.sock.recvLine(line)
+  if not state.sock.recvLine(line):
+    echo(OSErrorMsg())
   if line != "":
     state.handleMessage(line)
   else:

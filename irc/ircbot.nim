@@ -78,7 +78,8 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
 proc handleRead(s: PAsyncSocket, userArg: PObject) =
   let state = PState(userArg)
   var line = ""
-  doAssert state.sock.recvLine(line)
+  if not state.sock.recvLine(line):
+    echo(OSErrorMsg())
   if line != "":
     # Handle the message
     state.handleWebMessage(line)

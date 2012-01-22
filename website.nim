@@ -578,7 +578,12 @@ proc handleAccept(s: PAsyncSocket, arg: PObject) =
   # the time that it connected at....
   if select(clientS, 1500) == 1:
     var line = ""
-    doAssert client.recvLine(line)
+    if not client.recvLine(line):
+      # Don't reply, just close connection.
+      echo(OSErrorMsg())
+      client.close()
+      return
+      
     if state.parseGreeting(client, IPAddr, line):
       # Reply to the module
       client.send("{ \"reply\": \"OK\" }\c\L")
