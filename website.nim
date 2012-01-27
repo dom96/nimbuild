@@ -23,10 +23,14 @@ type
     scgiPort: int
     redisPort: int
 
+  TModuleStatus = enum
+    MSConnecting, ## Module connected, but has not sent the greeting.
+    MSConnected ## Module is ready to do work.
+
   TModule = object
     name: string
     sock: PAsyncSocket ## Client socket
-    connected: bool
+    status: TModuleStatus
     platform: string
     lastPong: float
     pinged: bool # whether we are waiting for a pong from the module.
@@ -114,8 +118,23 @@ proc contains(platforms: HPlatformStatus,
       return True
 
 proc handleModuleMsg(s: PAsyncSocket, arg: PObject)
-proc parseGreeting(state: PState, client: PAsyncSocket,
-                   IPAddr: string, line: string): bool =
+proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
+  var module: TModule
+  module.sock = client
+  module.ip = IPAddr
+  module.lastPong = epochTime()
+  module.pinged = false
+  module.status = MSConnecting
+  echo(IPAddr, " connected.")
+
+  # Add this module to the dispatcher.
+  client.handleRead = handleModuleMsg
+  client.userArg = state
+  module.delegID = state.dispatcher.register(client)
+
+  state.modules.add(module)
+
+proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   # { "name": "modulename" }
   var json: PJsonNode
   try:
@@ -123,7 +142,7 @@ proc parseGreeting(state: PState, client: PAsyncSocket,
   except EJsonParsingError:
     return False
 
-  if IPAddr != "127.0.0.1":
+  if m.ip != "127.0.0.1":
     # Check for password
     var fail = true
     if json.existsKey("pass"):
@@ -133,31 +152,22 @@ proc parseGreeting(state: PState, client: PAsyncSocket,
         echo("Got incorrect password: ", json["pass"].str)
 
     if fail: return false
-
-  var module: TModule
-  module.name = json["name"].str
-  module.sock = client
-  module.platform = json["platform"].str
-  module.ip = IPAddr
-  module.lastPong = epochTime()
-  module.pinged = false
-  echo(module.name, " connected from ", IPAddr)
+  
+  if not (json.existsKey("name") and json.existsKey("platform")): return false
+  
+  m.name = json["name"].str
+  m.platform = json["platform"].str
   
   # Only add this module platform to platforms if it's a `builder`, and
   # if platform doesn't already exist.
-  if module.name == "builder":
-    if module.platform notin state.platforms:
-      state.platforms.add((module.platform, initStatus()))
+  if m.name == "builder":
+    if m.platform notin state.platforms:
+      state.platforms.add((m.platform, initStatus()))
     else:
-      echo("Platform(", module.platform, ") already exists.")
+      echo("Platform(", m.platform, ") already exists.")
       return False
-
-  # Add this module to the dispatcher.
-  client.handleRead = handleModuleMsg
-  client.userArg = state
-  module.delegID = state.dispatcher.register(client)
-
-  state.modules.add(module)
+  
+  m.status = MSConnected
   
   return True
 
@@ -188,10 +198,14 @@ proc `[]=`*(ps: var HPlatformStatus,
 
 proc uniqueMName(module: TModule): string =
   result = ""
-  result.add module.name
-  result.add "-"
-  result.add module.platform
-  result.add "(" & module.ip & ")"
+  case module.status
+  of MSConnected:
+    result.add module.name
+    result.add "-"
+    result.add module.platform
+    result.add "(" & module.ip & ")"
+  of MSConnecting:
+    result.add "Unknown (" & module.ip & ")"
 
 proc remove(state: PState, module: TModule) =
   for i in 0..len(state.modules)-1:
@@ -399,19 +413,29 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
   # Module sent a message to us
   var disconnect: seq[TModule] = @[] # Modules which disconnected
   for i in 0..state.modules.len()-1:
-    var m = state.modules[i]
+    template m: expr = state.modules[i]
     if m.sock == s:
       var line = ""
       if recvLine(m.sock.getSocket, line):
         if line == "": 
           disconnect.add(m)
           continue
-        echo("Got line from $1: $2" % [m.name, line])
+        case m.status
+        of MSConnecting:
+          if state.parseGreeting(m, line):
+            m.sock.send("{ \"reply\": \"OK\" }\c\L")
+            echo(uniqueMName(m), " accepted.")
+          else:
+            m.sock.send("{ \"reply\": \"FAIL\" }\c\L")
+            echo("Rejected ", uniqueMName(m))
+            disconnect.add(m)
+        of MSConnected: 
+          echo("Got line from $1: $2" % [m.name, line])
 
-        # Getting a message is a sign of the module still being alive.
-        state.modules[i].lastPong = epochTime()
+          # Getting a message is a sign of the module still being alive.
+          state.modules[i].lastPong = epochTime()
 
-        state.parseMessage(i, line)
+          state.parseMessage(i, line)
       else:
         # Assume the module disconnected
         disconnect.add(m)
@@ -424,21 +448,29 @@ proc handlePings(state: PState) =
   var remove: seq[TModule] = @[] # Modules that have timed out.
   for i in 0..state.modules.len-1:
     template module: expr = state.modules[i]
-    if module.name == "builder":
-      if module.pinged and (epochTime() - module.lastPong) >= 25.0:
-        echo(uniqueMName(module),
-             " has not replied to PING. Assuming timeout!!!")
-        remove.add(module)
-        continue
+    case module.status
+    of MSConnected:
+      if module.name == "builder":
+        if module.pinged and (epochTime() - module.lastPong) >= 25.0:
+          echo(uniqueMName(module),
+               " has not replied to PING. Assuming timeout!!!")
+          remove.add(module)
+          continue
 
-      if (epochTime() - module.lastPong) >= 100.0:
-        var obj = newJObject()
-        obj["ping"] = newJString(formatFloat(epochTime()))
-        module.sock.send($obj & "\c\L")
-        module.lastPong = epochTime() # This is a bit misleading, but I don't
-                                      # want to add lastPing
-        module.pinged = true
-        echo("Pinging ", uniqueMName(module))
+        if (epochTime() - module.lastPong) >= 100.0:
+          var obj = newJObject()
+          obj["ping"] = newJString(formatFloat(epochTime()))
+          module.sock.send($obj & "\c\L")
+          module.lastPong = epochTime() # This is a bit misleading, but I don't
+                                        # want to add lastPing
+          module.pinged = true
+          echo("Pinging ", uniqueMName(module))
+    
+    of MSConnecting:
+      if (epochTime() - module.lastPong) >= 2.0:
+        echo(uniqueMName(module), " did not send a greeting.")
+        module.sock.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
+        remove.add(module)
   
   # Remove the modules that have timed out.
   for m in items(remove):
@@ -573,27 +605,7 @@ proc handleAccept(s: PAsyncSocket, arg: PObject) =
   # Connection from a module
   var (client, IPAddr) = s.acceptAddr()
   var clientS = @[client.getSocket]
-  # Wait 1.5 seconds for a greeting.
-  # TODO: Don't block here waiting for the module. Add field which specifies
-  # the time that it connected at....
-  if select(clientS, 1500) == 1:
-    var line = ""
-    if not client.recvLine(line):
-      # Don't reply, just close connection.
-      echo(OSErrorMsg())
-      client.close()
-      return
-      
-    if state.parseGreeting(client, IPAddr, line):
-      # Reply to the module
-      client.send("{ \"reply\": \"OK\" }\c\L")
-    else:
-      client.send("{ \"reply\": \"FAIL\" }\c\L")
-      echo("Rejected ", IPAddr)
-      client.close()
-  else:
-    client.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
-    client.close()
+  state.addModule(client, IPAddr)
 
 when isMainModule:
   var configPath = ""

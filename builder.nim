@@ -710,7 +710,7 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     s.close()
     echo("Waiting 5 seconds...")
     sleep(5000)
-    hubConnect(state, true)
+    try: hubConnect(state, true) except EOS: echo(getCurrentExceptionMsg()) 
 
 proc handleHubMessage(s: PAsyncSocket, userArg: PObject)
 proc hubConnect(state: PState, reconnect: bool) =
@@ -820,7 +820,9 @@ proc hubDisconnect(state: PState) =
 
 proc reconnect(state: PState) =
   state.hubDisconnect()
-  state.hubConnect(true)
+  try: state.hubConnect(true)
+  except EOS:
+    echo(getCurrentExceptionMsg())
 
 proc handleHubMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)

@@ -85,6 +85,7 @@ proc handleRead(s: PAsyncSocket, userArg: PObject) =
     state.handleWebMessage(line)
   else:
     echo("Disconnected from hub: ", OSErrorMsg())
+    s.close()
     echo("Reconnecting...")
     state.hubConnect()
 
