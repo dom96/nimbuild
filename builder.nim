@@ -369,7 +369,8 @@ proc setUploadLogs(state: PState) =
       # Create `folderName`. This is for if the bootstrap fails, and doesn't
       # get to the ftp portion, resulting in this folder not being created.
       state.ftp[].cd(state.ftpUploadDir / "commits")
-      state.ftp[].createDir(folderName)
+      state.ftp[].createDir(folderName, true)
+      state.ftp[].chmod(folderName, webFP)
       state.ftp[].cd(folderName)
       
     echo("Uploading log.txt")
