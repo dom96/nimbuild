@@ -401,9 +401,15 @@ proc nextStage(state: PState) =
       state.buildProgressing("Compiling koch.nim")
   of clean:
     state.progress.currentProc = unzipCSources
-    state.progress.p = state.startMyProcess(findExe("unzip"),
-        state.nimLoc / "build", "csources.zip")
-    state.buildProgressing("Executing unzip")
+    when defined(windows):
+      state.progress.p = state.startMyProcess(findExe("7za"),
+          state.nimLoc / "build", "e", "csources.zip",
+          "-o" & state.nimLoc / "build")
+      state.buildProgressing("Executing 7za e")
+    else:
+      state.progress.p = state.startMyProcess(findExe("unzip"),
+          state.nimLoc / "build", "csources.zip")
+      state.buildProgressing("Executing unzip")
   of unzipCSources:
     state.progress.currentProc = buildSh
     state.progress.p = state.startMyProcess(findExe("sh"),
@@ -437,8 +443,12 @@ proc nextStage(state: PState) =
     # Remove the .zip in case it already exists...
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipNim
-    state.progress.p = state.startMyProcess(findexe("zip"),
-        state.zipLoc, "-r", zipFile, folderName)
+    when defined(windows):
+      state.progress.p = state.startMyProcess(findexe("7za"),
+                state.zipLoc, "a", "-tzip", zipFile, folderName)
+    else:
+      state.progress.p = state.startMyProcess(findexe("zip"),
+          state.zipLoc, "-r", zipFile, folderName)
     state.buildProgressing("Creating archive - zip")
   
   of zipNim:
@@ -449,7 +459,11 @@ proc nextStage(state: PState) =
     var saveAs = addFileExt(makeZipPath(state.platform, commitHash), "zip")
     # Remove the pre-zipped folder with the binaries.
     dRemoveDir(state.zipLoc / fileName)
-    dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / saveAs)
+    when defined(windows):
+      dMoveFile(getHomeDir() / "AppData" / "Local" / "VirtualStore" / zip,
+                state.websiteLoc / "commits" / saveAs)
+    else:
+      dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / saveAs)
    
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadNim
@@ -561,6 +575,9 @@ proc nextStage(state: PState) =
     # -- ZIP!
     if existsFile(state.zipLoc / zipFile): removeFile(state.zipLoc / zipFile)
     state.progress.currentProc = zipCSrc
+    when defined(windows):
+      echo("Not implemented")
+      doAssert(false)
     state.progress.p = state.startMyProcess(findexe("zip"),
         state.zipLoc, "-r", zipFile, folderName)
     state.cSrcGenProgressing("Creating csource archive")
