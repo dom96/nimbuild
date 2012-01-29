@@ -452,7 +452,7 @@ proc handlePings(state: PState) =
     case module.status
     of MSConnected:
       if module.name == "builder":
-        if module.platform.startsWith("windows"): pingEvery = 3600.0
+        if module.platform.startsWith("windows"): pingEvery = 15000.0
       
         if module.pinged and (epochTime() - module.lastPong) >= 25.0:
           echo(uniqueMName(module),

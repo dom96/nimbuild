@@ -445,7 +445,7 @@ proc nextStage(state: PState) =
     state.progress.currentProc = zipNim
     when defined(windows):
       state.progress.p = state.startMyProcess(findexe("7za"),
-                state.zipLoc, "a", "-tzip", zipFile, folderName)
+                state.zipLoc, "a", "-tzip", zipFile.extractFilename, folderName)
     else:
       state.progress.p = state.startMyProcess(findexe("zip"),
           state.zipLoc, "-r", zipFile, folderName)
@@ -460,7 +460,7 @@ proc nextStage(state: PState) =
     # Remove the pre-zipped folder with the binaries.
     dRemoveDir(state.zipLoc / fileName)
     when defined(windows):
-      dMoveFile(getHomeDir() / "AppData" / "Local" / "VirtualStore" / zip,
+      dMoveFile(state.zipLoc / zip.extractFilename,
                 state.websiteLoc / "commits" / saveAs)
     else:
       dMoveFile(state.zipLoc / zip, state.websiteLoc / "commits" / saveAs)
