@@ -448,10 +448,12 @@ proc handlePings(state: PState) =
   var remove: seq[TModule] = @[] # Modules that have timed out.
   for i in 0..state.modules.len-1:
     template module: expr = state.modules[i]
-    let pingEvery = if module.name.startsWith("windows"): 3600.0 else: 100.0
+    var pingEvery = 100.0
     case module.status
     of MSConnected:
       if module.name == "builder":
+        if module.platform.startsWith("windows"): pingEvery = 3600.0
+      
         if module.pinged and (epochTime() - module.lastPong) >= 25.0:
           echo(uniqueMName(module),
                " has not replied to PING. Assuming timeout!!!")
