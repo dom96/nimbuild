@@ -599,6 +599,13 @@ proc readAll(p: PProcess, s: PStream): string =
     if c == '\0': break
     result.add(c)
 
+proc readAllBlock(s: PStream): string =
+  result = ""
+  while True:
+    var c = s.readChar()
+    if c == '\0': break
+    result.add(c)
+
 proc writeLogs(logFile, commitFile: TFile, s: string) =
   logFile.write(s)
   logFile.flushFile()
@@ -617,14 +624,21 @@ proc checkProgress(state: PState) =
     p = state.progress.p
     
     assert p != nil
-    var readP = @[p]
-    # TODO: Next line redundant?
-    if select(readP) == 1 and readP.len == 0:
-      var output = state.progress.p.readAll(state.progress.outPipe)
+    when defined(windows):
+      var output = readAllBlock(state.progress.outPipe)
       echo("Got output from ", state.progress.currentProc, ". Len = ",
            output.len)
       
       writeLogs(state.logFile, state.progress.commitFile, output)
+    else:
+      var readP = @[p]
+      # TODO: Next line redundant?
+      if select(readP) == 1 and readP.len == 0:
+        var output = state.progress.p.readAll(state.progress.outPipe)
+        echo("Got output from ", state.progress.currentProc, ". Len = ",
+             output.len)
+        
+        writeLogs(state.logFile, state.progress.commitFile, output)
     
     var exitCode = p.peekExitCode
     if exitCode != -1:

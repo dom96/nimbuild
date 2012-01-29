@@ -448,6 +448,7 @@ proc handlePings(state: PState) =
   var remove: seq[TModule] = @[] # Modules that have timed out.
   for i in 0..state.modules.len-1:
     template module: expr = state.modules[i]
+    let pingEvery = if module.name.startsWith("windows"): 3600.0 else: 100.0
     case module.status
     of MSConnected:
       if module.name == "builder":
@@ -457,7 +458,7 @@ proc handlePings(state: PState) =
           remove.add(module)
           continue
 
-        if (epochTime() - module.lastPong) >= 100.0:
+        if (epochTime() - module.lastPong) >= pingEvery:
           var obj = newJObject()
           obj["ping"] = newJString(formatFloat(epochTime()))
           module.sock.send($obj & "\c\L")
