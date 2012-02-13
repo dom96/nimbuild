@@ -680,11 +680,14 @@ proc readProcess(){.thread.} =
       else:
         echo("[Thread] Process exited.")
         started = false
-        #p.terminate()
+        var code = p.peekExitCode()
+        if code == -1:
+          p.terminate()
+          code = p.waitForExit()
         o.close()
         dat.typ = TPDExit
         echo("[Thread] Waiting for exit.")
-        dat.code = p.waitForExit()
+        dat.code = code
         echo("[Thread] Got exit code.")
         processOutputChan.send(dat)
 
