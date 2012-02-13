@@ -13,7 +13,6 @@ found at http://github.com/Araq/Nimrod
   webFP = {fpUserRead, fpUserWrite, fpUserExec,
            fpGroupRead, fpGroupExec, fpOthersRead, fpOthersExec}
 
-
 type
   TCurrentProc = enum
     unstage, pullProc,
@@ -64,7 +63,17 @@ type
     pinged: float
     reconnecting: bool
   
+    processThread: TThread[void]
+  
   PState = ref TState
+
+  TProcessStartInfo = tuple[p: PProcess, o: PStream]
+
+var
+  processInfoChan: TChannel[TProcessStartInfo]
+  processOutputChan: TChannel[string]
+processInfoChan.open()
+processOutputChan.open()
 
 # Configuration
 proc parseConfig(state: PState, path: string) =
@@ -279,6 +288,7 @@ proc startMyProcess(state: PState, cmd, workDir: string,
     result = startProcess(workDir / cmd.changeFileExt(ExeExt), workDir,
                           args, nil)
   state.progress.outPipe = result.outputStream
+  processInfoChan.send((result, state.progress.outPipe))
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -632,32 +642,47 @@ proc writeLogs(logFile, commitFile: TFile, s: string) =
 proc isProcess(currentProc: TCurrentProc): bool =
   return currentProc notin {uploadNim, uploadTests, uploadLogs, noJob}
 
+proc readProcess(){.thread.} =
+  # This thread proc will attempt to read data from a process.
+  # This is needed because async process reading is quite hard to accomplish,
+  # especially on Windows.
+  var p: PProcess
+  var o: PStream
+  var started = false
+  while True:
+    var tasks = processInfoChan.peek()
+    if tasks == 0 and not started: tasks = 1
+    if tasks > 0:
+      var task: TProcessStartInfo = processInfoChan.recv()
+      if not started:
+        started = true
+        p = task.p
+        o = task.o
+        echo("[Thread] Process started.")
+      else: echo("[Thread] Process still running.")
+    
+    if started:
+      var line = o.readLine()
+      if line != "":
+        processOutputChan.send(line)
+      else:
+        echo("[Thread] Process exited.")
+        started = false
+
 proc checkProgress(state: PState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
   if isInProgress(state.status.status) and 
      isProcess(state.progress.currentProc):
-    var p: PProcess
-    p = state.progress.p
-    
-    assert p != nil
-    when defined(windows):
-      var output = readAllBlock(state.progress.outPipe)
-      echo("Got output from ", state.progress.currentProc, ". Len = ",
-           output.len)
-      
-      writeLogs(state.logFile, state.progress.commitFile, output)
-    else:
-      var readP = @[p]
-      # TODO: Next line redundant?
-      if select(readP) == 1 and readP.len == 0:
-        var output = state.progress.p.readAll(state.progress.outPipe)
-        echo("Got output from ", state.progress.currentProc, ". Len = ",
-             output.len)
+    var lines = processOutputChan.peek()
+    if lines > 0:
+      for i in 0..lines-1:
+        var line = processOutputChan.recv()
+        echo(state.progress.currentProc, " output: ", line.len)
         
-        writeLogs(state.logFile, state.progress.commitFile, output)
+        writeLogs(state.logFile, state.progress.commitFile, line)
     
-    var exitCode = p.peekExitCode
+    var exitCode = state.progress.p.peekExitCode
     if exitCode != -1:
       echo(state.progress.currentProc, " terminated")
       if exitCode == QuitSuccess:
@@ -923,6 +948,7 @@ proc parseArgs(): string =
 when isMainModule:
   echo("Started builder: built at ", CompileDate, " ", CompileTime)
   var state = builder.open(parseArgs())
+  createThread[void](state.processThread, readProcess)
   while True:
     discard state.dispatcher.poll()
     

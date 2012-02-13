@@ -121,22 +121,24 @@ proc handleRequest(server: var TAsyncScgiState, client: TSocket,
   
   if headers["REQUEST_METHOD"] == "POST":
     echo(hostname)
-    if hostname.endswith("github.com"):
-      if input.startswith("payload="):
-        var inp2 = input.copy(8, input.len-1)
-        var json = parseJson(URLDecode(inp2))
-        if json["repository"]["url"].str in ghRepos:
-          sendBuild(state.sock, json)
-        else:
-          echo("Not our repo. WTF? Got repo url " & json["repository"]["url"].str)
-      
-      client.safeSend("Status: 202 Accepted\c\L\c\L")
-      client.close()
-    else:
-      echo("Intruder alert! POST detected from an unknown party. Namely: ",
-           hostname)
-      client.safeSend("Status: 403 Forbidden\c\L\c\L")
-      client.close()
+    #if hostname.endswith("github.com"):
+    if input.startswith("payload="):
+      var inp2 = input.copy(8, input.len-1)
+      var json = parseJson(URLDecode(inp2))
+      if json["repository"]["url"].str in ghRepos:
+        sendBuild(state.sock, json)
+        echo(json["after"].str)
+      else:
+        echo("Not our repo. WTF? Got repo url " & json["repository"]["url"].str)
+    else: echo("No `payload=` at start.")
+    
+    client.safeSend("Status: 202 Accepted\c\L\c\L")
+    client.close()
+    #else:
+    #  echo("Intruder alert! POST detected from an unknown party. Namely: ",
+    #       hostname)
+    #  client.safeSend("Status: 403 Forbidden\c\L\c\L")
+    #  client.close()
   else:
     echo("Received ", headers["REQUEST_METHOD"], " request from ", hostname)
     client.safeSend("Status: 404 Not Found\c\LContent-Type: text/html\c\L\c\L")
