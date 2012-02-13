@@ -663,10 +663,12 @@ proc readProcess(){.thread.} =
     if started:
       var line = o.readLine()
       if line != "":
-        processOutputChan.send(line)
+        processOutputChan.send(line & "\n")
       else:
         echo("[Thread] Process exited.")
         started = false
+        p.terminate()
+        o.close()
 
 proc checkProgress(state: PState) =
   ## This is called from the main loop - checks the progress of the current
