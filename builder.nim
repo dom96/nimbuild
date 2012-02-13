@@ -70,7 +70,7 @@ type
   TProcessStartInfo = tuple[p: PProcess, o: PStream]
 
 var
-  processInfoChan: TChannel[TProcessStartInfo]
+  processInfoChan: TChannel[PProcess]
   processOutputChan: TChannel[string]
 processInfoChan.open()
 processOutputChan.open()
@@ -288,7 +288,7 @@ proc startMyProcess(state: PState, cmd, workDir: string,
     result = startProcess(workDir / cmd.changeFileExt(ExeExt), workDir,
                           args, nil)
   state.progress.outPipe = result.outputStream
-  processInfoChan.send((result, state.progress.outPipe))
+  processInfoChan.send(result)
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -653,11 +653,10 @@ proc readProcess(){.thread.} =
     var tasks = processInfoChan.peek()
     if tasks == 0 and not started: tasks = 1
     if tasks > 0:
-      var task: TProcessStartInfo = processInfoChan.recv()
+      p = processInfoChan.recv()
       if not started:
         started = true
-        p = task.p
-        o = task.o
+        o = p.outputStream
         echo("[Thread] Process started.")
       else: echo("[Thread] Process still running.")
     
