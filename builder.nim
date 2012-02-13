@@ -667,7 +667,6 @@ proc readProcess(){.thread.} =
       else:
         echo("[Thread] Process exited.")
         started = false
-        p.terminate()
         o.close()
 
 proc checkProgress(state: PState) =
@@ -679,7 +678,7 @@ proc checkProgress(state: PState) =
     if lines > 0:
       for i in 0..lines-1:
         var line = processOutputChan.recv()
-        echo(state.progress.currentProc, " output: ", line.len)
+        #echo(state.progress.currentProc, " output: ", line.len)
         
         writeLogs(state.logFile, state.progress.commitFile, line)
     
