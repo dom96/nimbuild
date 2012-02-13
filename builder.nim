@@ -69,9 +69,19 @@ type
 
   TProcessStartInfo = tuple[p: PProcess, o: PStream]
 
+  TPDType = enum
+    TPDLine, TPDExit
+
+  TProcessData = object
+    case typ: TPDType
+    of TPDLine:
+      line: string
+    of TPDExit:
+      code: int
+
 var
   processInfoChan: TChannel[PProcess]
-  processOutputChan: TChannel[string]
+  processOutputChan: TChannel[TProcessData]
 processInfoChan.open()
 processOutputChan.open()
 
@@ -662,12 +672,21 @@ proc readProcess(){.thread.} =
     
     if started:
       var line = o.readLine()
+      var dat: TProcessData
       if line != "":
-        processOutputChan.send(line & "\n")
+        dat.typ = TPDLine
+        dat.line = line & "\n"
+        processOutputChan.send(dat)
       else:
         echo("[Thread] Process exited.")
         started = false
+        #p.terminate()
         o.close()
+        dat.typ = TPDExit
+        echo("[Thread] Waiting for exit.")
+        dat.code = p.waitForExit()
+        echo("[Thread] Got exit code.")
+        processOutputChan.send(dat)
 
 proc checkProgress(state: PState) =
   ## This is called from the main loop - checks the progress of the current
@@ -677,56 +696,57 @@ proc checkProgress(state: PState) =
     var lines = processOutputChan.peek()
     if lines > 0:
       for i in 0..lines-1:
-        var line = processOutputChan.recv()
-        #echo(state.progress.currentProc, " output: ", line.len)
-        
-        writeLogs(state.logFile, state.progress.commitFile, line)
-    
-    var exitCode = state.progress.p.peekExitCode
-    if exitCode != -1:
-      echo(state.progress.currentProc, " terminated")
-      if exitCode == QuitSuccess:
-        var s = $state.progress.currentProc & " finished successfully."
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-        echo(state.progress.currentProc,
-             " exited successfully. Continuing to next stage.")
-        state.nextStage()
-        s = $state.progress.currentProc & " started."
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-      else:
-        var output = state.progress.p.readAll(state.progress.outPipe)
-        echo("Got output (after termination) from ",
-             state.progress.currentProc, ". Len = ",
-             output.len)
-        var s = ""
-        if output.len() > 0:
-          s.add(output)
-        s.add($state.progress.currentProc & " FAILED!")
-         
-        writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-        
-        if state.progress.currentProc <= zipNim:
-          echo(state.progress.currentProc,
-               " failed. Build failed! Exit code = ", exitCode)
-          buildFailed(state, $state.progress.currentProc &
-                      " failed with exit code 1")
-        elif state.progress.currentProc <= runTests:
-          echo(state.progress.currentProc,
-               " failed. Running tests failed! Exit code = ", exitCode)
-          testingFailed(state, $state.progress.currentProc &
-                        " failed with exit code 1")
-        elif state.progress.currentProc <= runDocGen:
-          echo(state.progress.currentProc,
-               " failed. Generating docs failed! Exit code = ", exitCode)
-          docgenFailed(state, $state.progress.currentProc &
-                        " failed with exit code 1")
-        elif state.progress.currentProc <= zipCSrc:
-          echo(state.progress.currentProc,
-               " failed. Generating csources failed! Exit code = ", exitCode)
-          cSrcGenFailed(state, $state.progress.currentProc &
-                        " failed with exit code 1")
-       
-        state.setUploadLogs()
+        var dat = processOutputChan.recv()
+        case dat.typ
+        of TPDLine:
+          #echo(state.progress.currentProc, " output: ", line.len)
+          
+          writeLogs(state.logFile, state.progress.commitFile, dat.line)
+        of TPDExit:
+          var exitCode = dat.code
+          echo(state.progress.currentProc, " terminated")
+          if exitCode == QuitSuccess:
+            var s = $state.progress.currentProc & " finished successfully."
+            writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+            echo(state.progress.currentProc,
+                 " exited successfully. Continuing to next stage.")
+            state.nextStage()
+            s = $state.progress.currentProc & " started."
+            writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+          else:
+            #var output = state.progress.p.readAll(state.progress.outPipe)
+            #echo("Got output (after termination) from ",
+            #     state.progress.currentProc, ". Len = ",
+            #     output.len)
+            #var s = ""
+            #if output.len() > 0:
+            #  s.add(output)
+            #s.add($state.progress.currentProc & " FAILED!")
+             
+            #writeLogs(state.logFile, state.progress.commitFile, s & "\n")
+            
+            if state.progress.currentProc <= zipNim:
+              echo(state.progress.currentProc,
+                   " failed. Build failed! Exit code = ", exitCode)
+              buildFailed(state, $state.progress.currentProc &
+                          " failed with exit code 1")
+            elif state.progress.currentProc <= runTests:
+              echo(state.progress.currentProc,
+                   " failed. Running tests failed! Exit code = ", exitCode)
+              testingFailed(state, $state.progress.currentProc &
+                            " failed with exit code 1")
+            elif state.progress.currentProc <= runDocGen:
+              echo(state.progress.currentProc,
+                   " failed. Generating docs failed! Exit code = ", exitCode)
+              docgenFailed(state, $state.progress.currentProc &
+                            " failed with exit code 1")
+            elif state.progress.currentProc <= zipCSrc:
+              echo(state.progress.currentProc,
+                   " failed. Generating csources failed! Exit code = ", exitCode)
+              cSrcGenFailed(state, $state.progress.currentProc &
+                            " failed with exit code 1")
+           
+            state.setUploadLogs()
 
 
 # Communication
