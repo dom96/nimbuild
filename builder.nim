@@ -491,7 +491,10 @@ proc nextStage(state: PState) =
       state.ftp[].connect()
       assert state.ftp[].pwd().startsWith("/home/nimrod")
       state.ftp[].cd(state.ftpUploadDir / "commits")
-      state.ftp[].createDir(fileName, true)
+      
+      try: state.ftp[].createDir(fileName, true)
+      except EInvalidReply: nil
+      
       state.ftp[].chmod(fileName, webFP)
       state.ftp[].store(state.websiteLoc / "commits" / saveAs, saveAs,
                       async = true)
