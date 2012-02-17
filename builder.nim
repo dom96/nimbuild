@@ -665,10 +665,13 @@ proc readProcess(){.thread.} =
     if tasks > 0:
       p = processInfoChan.recv()
       if not started:
+        assert(processOutputChan.peek() == 0)
         started = true
         o = p.outputStream
         echo("[Thread] Process started.")
-      else: echo("[Thread] Process still running.")
+      else: 
+        echo("[Thread] Process still running.")
+        assert(false)
     
     if started:
       var line = o.readLine()
@@ -678,19 +681,31 @@ proc readProcess(){.thread.} =
         dat.line = line & "\n"
         processOutputChan.send(dat)
       else:
-        echo("[Thread] Process exited.")
-        started = false
         var code = p.peekExitCode()
         if code == -1:
-          p.terminate()
-          code = p.waitForExit()
+          echo("[Thread] Process is still apparently running.")
+        else:
+          echo("[Thread] Process exited.")
+          o.close()
+          started = false
+          dat.typ = TPDExit
+          dat.code = code
+          processOutputChan.send(dat)
+    
+    # Check to make sure that the process hasn't already exited.
+    # This should prevent cases where the channel receives 2 TPDExit
+    # messages.
+    if started:
+      var peekedExit = p.peekExitCode()
+      if peekedExit != -1:
+        echo("[Thread] Caught process exit outside.")
+        started = false
         o.close()
+        var dat: TProcessData
         dat.typ = TPDExit
-        echo("[Thread] Waiting for exit.")
-        dat.code = code
-        echo("[Thread] Got exit code.")
+        dat.code = peekedExit
         processOutputChan.send(dat)
-
+          
 proc checkProgress(state: PState) =
   ## This is called from the main loop - checks the progress of the current
   ## process being run as part of the build/test process.
@@ -708,6 +723,7 @@ proc checkProgress(state: PState) =
         of TPDExit:
           var exitCode = dat.code
           echo(state.progress.currentProc, " terminated")
+          
           if exitCode == QuitSuccess:
             var s = $state.progress.currentProc & " finished successfully."
             writeLogs(state.logFile, state.progress.commitFile, s & "\n")
@@ -717,17 +733,6 @@ proc checkProgress(state: PState) =
             s = $state.progress.currentProc & " started."
             writeLogs(state.logFile, state.progress.commitFile, s & "\n")
           else:
-            #var output = state.progress.p.readAll(state.progress.outPipe)
-            #echo("Got output (after termination) from ",
-            #     state.progress.currentProc, ". Len = ",
-            #     output.len)
-            #var s = ""
-            #if output.len() > 0:
-            #  s.add(output)
-            #s.add($state.progress.currentProc & " FAILED!")
-             
-            #writeLogs(state.logFile, state.progress.commitFile, s & "\n")
-            
             if state.progress.currentProc <= zipNim:
               echo(state.progress.currentProc,
                    " failed. Build failed! Exit code = ", exitCode)
@@ -750,7 +755,6 @@ proc checkProgress(state: PState) =
                             " failed with exit code 1")
            
             state.setUploadLogs()
-
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
