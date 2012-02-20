@@ -357,10 +357,23 @@ proc tallyTestResults(path: string):
   
   return (total, passed, skipped, total - (passed + skipped))
 
+proc stopBuild(state: PState) =
+  ## Terminates a build
+  # TODO: Send a message to the website, make it record it to the database
+  # as "terminated".
+  
+  # Simply terminate the currently running process, should hopefully work.
+  echo("Stopping current build in progress.")
+  state.progress.p.terminate()
+
 proc beginBuild(state: PState) =
   ## This procedure starts the process of building nimrod. All it does
   ## is create a ``progress`` object, call ``buildProgressing()``,
   ## execute the ``git checkout .`` command and open a commit specific log file.
+  
+  # First make sure to stop any currently running process.
+  state.stopBuild()
+  
   var commitHash = state.progress.payload["after"].str
   var folderName = makeCommitPath(state.platform, commitHash)
   dCreateDir(state.websiteLoc / "commits" / folderName)
@@ -493,7 +506,7 @@ proc nextStage(state: PState) =
       state.ftp[].cd(state.ftpUploadDir / "commits")
       
       try: state.ftp[].createDir(fileName, true)
-      except EInvalidReply: nil
+      except EInvalidReply: nil # TODO: Check properly whether the folder exists
       
       state.ftp[].chmod(fileName, webFP)
       state.ftp[].store(state.websiteLoc / "commits" / saveAs, saveAs,
@@ -690,6 +703,7 @@ proc readProcess(){.thread.} =
         else:
           echo("[Thread] Process exited.")
           o.close()
+          p.close()
           started = false
           dat.typ = TPDExit
           dat.code = code
@@ -704,6 +718,7 @@ proc readProcess(){.thread.} =
         echo("[Thread] Caught process exit outside.")
         started = false
         o.close()
+        p.close()
         var dat: TProcessData
         dat.typ = TPDExit
         dat.code = peekedExit
