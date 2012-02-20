@@ -357,14 +357,18 @@ proc tallyTestResults(path: string):
   
   return (total, passed, skipped, total - (passed + skipped))
 
+proc isProcess(currentProc: TCurrentProc): bool =
+  return currentProc notin {uploadNim, uploadTests, uploadLogs, noJob}
+
 proc stopBuild(state: PState) =
   ## Terminates a build
   # TODO: Send a message to the website, make it record it to the database
   # as "terminated".
   
   # Simply terminate the currently running process, should hopefully work.
-  echo("Stopping current build in progress.")
-  state.progress.p.terminate()
+  if isProcess(state.progress.currentProc):
+    echo("Stopping current build in progress.")
+    state.progress.p.terminate()
 
 proc beginBuild(state: PState) =
   ## This procedure starts the process of building nimrod. All it does
@@ -664,9 +668,6 @@ proc writeLogs(logFile, commitFile: TFile, s: string) =
   logFile.flushFile()
   commitFile.write(s)
   commitFile.flushFile()
-
-proc isProcess(currentProc: TCurrentProc): bool =
-  return currentProc notin {uploadNim, uploadTests, uploadLogs, noJob}
 
 proc readProcess(){.thread.} =
   # This thread proc will attempt to read data from a process.
