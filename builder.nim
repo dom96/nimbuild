@@ -159,6 +159,8 @@ proc defaultState(): PState =
 
   result.lastMsgTime = epochTime()
   result.pinged = -1.0
+  
+  result.progress.currentProc = noJob
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: PState, desc: string) =
