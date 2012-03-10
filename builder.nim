@@ -932,13 +932,14 @@ proc reconnect(state: PState) =
 proc handleHubMessage(s: PAsyncSocket, userArg: PObject) =
   var state = PState(userArg)
   var line = ""
-  if not state.sock.recvLine(line):
-    echo(OSErrorMsg())
-  if line != "":
-    state.parseMessage(line)
+  if state.sock.recvLine(line):
+    if line != "":
+      state.parseMessage(line)
+    else:
+      echo("Disconnected from hub: ", OSErrorMsg())
+      reconnect(state)
   else:
-    echo("Disconnected from hub: ", OSErrorMsg())
-    reconnect(state)
+    echo(OSErrorMsg())
 
 proc checkTimeout(state: PState) =
   const timeoutSeconds = 110.0
