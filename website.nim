@@ -315,38 +315,44 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       assert(false)
   elif json.existsKey("payload"):
     # { "payload": { .. } }
-    # Check if the commit exists.
-    if not state.database.commitExists(json["payload"]["after"].str):
-      # Make sure this is the master branch.
-      if json["payload"]["ref"].str == "refs/heads/master":
-        var commits = json["payload"]["commits"]
-        var latestCommit = commits[commits.len-1]
-        # Add commit to database
-        state.database.addCommit(json["payload"]["after"].str,
-            latestCommit["message"].str,
-            latestCommit["author"]["username"].str)
+    # Check if this is the Nimrod repo.
+    if "araq/nimrod" in json["payload"]["repository"]["url"].str.toLower():
+      # Check if the commit exists.
+      if not state.database.commitExists(json["payload"]["after"].str):
+        # Make sure this is the master branch.
+        if json["payload"]["ref"].str == "refs/heads/master":
+          var commits = json["payload"]["commits"]
+          var latestCommit = commits[commits.len-1]
+          # Add commit to database
+          state.database.addCommit(json["payload"]["after"].str,
+              latestCommit["message"].str,
+              latestCommit["author"]["username"].str)
 
-        # Send this message to the "builder" modules
-        for module in items(state.modules):
-          if module.name == "builder":
-            state.database.addPlatform(json["payload"]["after"].str,
-                module.platform)
-           
-            # Add "rebuild" flag.
-            json["rebuild"] = newJBool(false)
-               
-            module.sock.send($json & "\c\L")
+          # Send this message to the "builder" modules
+          for module in items(state.modules):
+            if module.name == "builder":
+              state.database.addPlatform(json["payload"]["after"].str,
+                  module.platform)
+             
+              # Add "rebuild" flag.
+              json["rebuild"] = newJBool(false)
+                 
+              module.sock.send($json & "\c\L")
+        else:
+          echo("Not master branch, not rebuilding. Got: ",
+               json["payload"]["ref"].str)
+                
       else:
-        echo("Not master branch, not rebuilding. Got: ",
-             json["payload"]["ref"].str)
-              
-      # Send this message to the "irc" module.
-      if "irc" in state.modules:
-        for module in items(state.modules):
-          if module.name == "irc":
-            module.sock.send($json & "\c\L")
+        echo("Commit already exists. Not rebuilding.")
     else:
-      echo("Commit already exists. Not rebuilding.")
+      echo("Repo is not Nimrod. Got: " & 
+            json["payload"]["repository"]["url"].str)
+    
+    # Send this message to the "irc" module.
+    if "irc" in state.modules:
+      for module in items(state.modules):
+        if module.name == "irc":
+          module.sock.send($json & "\c\L")
 
   elif json.existsKey("rebuild"):
     # { "rebuild": "hash" }
@@ -403,6 +409,20 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     json.delete("ping")
     m.sock.send($json & "\c\L")
 
+  elif json.existsKey("do"):
+    # { "do": "command to do (Info to get)" }
+    if json["do"].str == "redisinfo":
+      # This command asks the website for redis connection info.
+      # { "redisinfo": { "port": ..., "password" } }
+      var jobj = newJObject()
+      jobj["redisinfo"] = newJObject()
+      jobj["redisinfo"]["port"] = newJInt(state.redisPort)
+      m.sock.send($jobj & "\c\L")
+    else:
+      echo("[Fatal] Can't understand message from " & m.name & ": ",
+           line)
+      assert(false)
+
   else:
     echo("[Fatal] Can't understand message from " & m.name & ": ",
          line)
@@ -416,7 +436,7 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
     template m: expr = state.modules[i]
     if m.sock == s:
       var line = ""
-      if recvLine(m.sock.getSocket, line):
+      if recvLine(s, line):
         if line == "": 
           disconnect.add(m)
           continue
@@ -437,8 +457,9 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
 
           state.parseMessage(i, line)
       else:
-        # Assume the module disconnected
-        disconnect.add(m)
+        echo(OSErrorMsg())
+        ## Assume the module disconnected
+        #disconnect.add(m)
   
   # Remove disconnected modules
   for m in items(disconnect):

@@ -4,7 +4,9 @@ from cgi import URLDecode
 import types
 
 const
-  ghRepos = ["https://github.com/Araq/Nimrod"]
+  ghRepos = ["https://github.com/Araq/Nimrod",
+             "https://github.com/nimrod-code/nimbuild",
+             "https://github.com/nimrod-code/Aporia"]
 
 type
   PState = ref TState
