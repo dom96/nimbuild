@@ -227,8 +227,8 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
               pm("$1 was last seen on $2 quitting with message: $3" % 
                         [seenInfo.nick, $seenInfo.timestamp, seenInfo.msg])
             of PSeenNick:
-              pm("$1 was last seen on $2 quitting with message: $3" % 
-                        [seenInfo.nick, $seenInfo.timestamp, seenInfo.msg])
+              pm("$1 was last seen on $2 changing nick to $3" % 
+                        [seenInfo.nick, $seenInfo.timestamp, seenInfo.newNick])
             
           else:
             pm("I have not seen " & nick)
