@@ -684,6 +684,9 @@ proc readProcess(){.thread.} =
     if tasks > 0:
       p = processInfoChan.recv()
       if not started:
+        if processOutputChan.peek() == 0:
+          for i in 0..processOutputChan.peek()-1:
+            discard processOutputChan.recv()
         assert(processOutputChan.peek() == 0)
         started = true
         o = p.outputStream

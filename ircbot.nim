@@ -98,8 +98,8 @@ proc handleWebMessage(state: PState, line: string) =
       var commit = json["payload"]["commits"][i]
       # Create the message
       var message = ""
-      message.add(json["payload"]["repository"]["name"].str & "/" &
-                  json["payload"]["repository"]["owner"]["name"].str & " ")
+      message.add(json["payload"]["repository"]["owner"]["name"].str & "/" &
+                  json["payload"]["repository"]["name"].str & " ")
       message.add(commit["id"].str[0..6] & " ")
       message.add(commit["author"]["name"].str & " ")
       message.add("[+" & $commit["added"].len & " ")
