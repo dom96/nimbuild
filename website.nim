@@ -1,10 +1,11 @@
 ## This is the SCGI Website and the hub.
 import 
-  sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg
-import types, db
+  sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
+  htmlgen
+import types, db, htmlhelp
 
 const
-  websiteURL = "http://dom96.co.cc/nimbuild/"
+  websiteURL = "http://build.nimrod-code.org"
 
 type
   HPlatformStatus = seq[tuple[platform: string, status: TStatus]]
@@ -548,7 +549,166 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
     var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
+  
+const order = ["linux", "windows", "macosx"]
+proc sortPlatforms(platforms: seq[string]): seq[string] =
+  result = @[]
+  var seps: array[0..order.len-1, seq[string]]
+  seps[0] = @[]
+  seps[1] = @[]
+  seps[2] = @[]
+  for p in platforms:
+    for i in 0..order.len()-1:
+      if p.startsWith(order[i]):
+        seps[i].add(p)
+        break
+  
+  for i in 0..order.len()-1:
+    result.add(seps[i])
 
+const archsOrder = ["x86", "x86_64", "ppc64"]
+proc sortArchitectures(platforms: seq[string]): seq[string] =
+  result = @[]
+  var seps: array[0..order.len-1, seq[string]]
+  seps[0] = @[]
+  seps[1] = @[]
+  seps[2] = @[]
+  for p in platforms:
+    for i in 0..archsOrder.len()-1:
+      if archsOrder[i] in p:
+        # Delete this platform from previous sequences.
+        for x in 0..archsOrder.len()-1:
+          for count, y in pairs(seps[x]):
+            if y == p:
+              seps[x].delete(count)
+              break
+        # Add this platform to the current sequence.
+        seps[i].add(p)
+
+  
+  for i in 0..archsOrder.len()-1:
+    result.add(seps[i])
+
+proc findLatestCommit(entries: seq[TEntry], 
+                      platform: string, 
+                      res: var tuple[entry: TEntry, latest: bool]): bool =
+  result = false
+  var i = 0
+  for c, p in items(entries):
+    if platform in p:
+      let platf = p[platform]
+      if platf.buildResult == bSuccess:
+        res = ((c, p), i == 0 and entries[0].c.hash == c.hash)
+        return true
+      
+      i.inc()
+
+proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
+  result = ""
+  
+  var OSes: seq[string] = @[]
+  var CPUs: seq[string] = @[]
+  var versions: seq[tuple[ver: string, os: string]] = @[]
+  for p in platforms:
+    var spl = p.split('-')
+    
+    if spl.len() > 2:
+      if (ver: spl[2], os: spl[0]) notin versions:
+        versions.add((spl[2], spl[0]))
+    elif spl[0] notin OSes:
+      versions.add(("", spl[0]))
+    
+    if spl[0] notin OSes: OSes.add(spl[0])
+    if spl[1] notin CPUs: CPUs.add(spl[1])
+  
+  var table = initTable()
+  table.addRow()
+  table.addRow() # For Versions.
+  table[0].addCol("", true)
+  table[1].addCol("", true)
+  for os in OSes:
+    table[0].addCol(os, true) # Add OS.
+  for cpuI, cpu in CPUs:
+    if cpuI+2 > table.len()-1: table.addRow() 
+    table[2+cpuI].addCol(cpu, true)
+    
+    # Loop through versions.
+    var currentVerI = 0
+    while currentVerI < versions.len():
+      var pName = ""
+      if versions[currentVerI].ver != "":
+        pName = versions[currentVerI].os & "-" &
+               cpu & "-" & versions[currentVerI].ver
+      else:
+        pName = versions[currentVerI].os & "-" & cpu
+      
+      if pName in platforms:
+        var latestCommit: tuple[entry: TEntry, latest: bool]
+        if entries.findLatestCommit(pName, latestCommit):
+          var (entry, latest) = latestCommit
+          var attrs: seq[tuple[name, content: string]] = @[]
+          attrs.add(("class", if latest: "green" else: "orange"))
+          if pName in entry.p:
+            var weburl = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
+                            [entry.c.hash[0..11], entry.p[pName].platform])
+            table[2+cpuI].addCol(a(entry.c.hash[0..11], href = weburl), attrs=attrs)
+        
+      currentVerI.inc()
+    
+  for v in versions:
+    table[1].addCol(v.ver, true)
+    if v.ver != "":
+      # Add +1 to colspan of OS
+      var cols = findCols(table[0], v.os)
+      assert cols.len > 0
+      if not cols[0].attrs.hasKey("colspan"):
+        cols[0].attrs["colspan"] = "1"
+      else:
+        cols[0].attrs["colspan"] = $(cols[0].attrs["colspan"].parseInt + 1)
+  
+  result = table.toHtml("id=\"downloads\"")
+
+proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
+  # Generate buttons for C sources and docs.
+  # Find the latest C sources.
+  result = ""
+  var csourceWeb = ""
+  var csourceFound = false
+  var csourceLatest = false
+  var i = 0
+  for c, p in items(entries):
+    for platf in p:
+      if platf.csources:
+        csourceWeb = joinUrl(websiteUrl,
+                            "commits/$2/nimrod_$1_csources.zip" %
+                            [c.hash[0..11], platf.platform])
+        csourceFound = true
+        csourceLatest = i == 0    
+    i.inc()
+        
+  # Find out whether latest doc gen succeeded.
+  var docgenSuccess = true # By default it succeeded.
+  for p, s in items(platforms):
+    if s.status == sDocGenFailure:
+      docgenSuccess = false
+      break
+  
+  var csourceClass = "right " & (if csourceLatest: "active" else: "warning") &
+                     " button"
+  var docClass = "left " & (if docgenSuccess: "active" else: "warning") &
+                 " button"
+  
+  var docWeb     = joinUrl(websiteURL, "docs/lib.html")
+  
+  result.add(a(span("", class = "download") & 
+                span("C Sources", class = "platform"),
+               class = csourceClass, href = csourceWeb))
+  
+  result.add(a(span("", class = "book") & 
+                span("Documentation", class = "platform"),
+               class = docClass, href = docWeb))
+    
+discard """
 proc genDownloadButtons(entries: seq[TEntry],
                         platforms: seq[string]): string =
   result = ""
@@ -586,6 +746,7 @@ proc genDownloadButtons(entries: seq[TEntry],
   result.add("<a href=\"$1\" class=\"$2\">$3Documentation</a>" %
              [joinUrl(websiteURL, "docs/lib.html"), "right active button",
               docSpan])
+"""
 
 include "index.html"
 # SCGI

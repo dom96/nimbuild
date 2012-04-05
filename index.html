@@ -15,12 +15,16 @@
 	<link rel="stylesheet" href="${genCssPath(state)}static/css/style.css">
 </head>
 <body>
-  <div id="header">NimBuild - Nimrod's build farm.</div>
+  #var platforms: seq[string] = @[] # Every platform, from every commit.
+  #platforms = sortArchitectures(platforms).sortPlatforms()
+  #var entries = getCommits(state.database, platforms) 
+  <div id="header">
+    NimBuild - Nimrod's build farm.
+    ${genTopButtons(state.platforms, entries)}
+  </div>
   <div id="content">
   <!-- Output information from database -->
-  #var platforms: seq[string] = @[] # Every platform, from every commit.
-  #var entries = getCommits(state.database, platforms) 
-  ${genDownloadButtons(entries, platforms)}
+  ${genDownloadTable(entries, platforms)}
   #if platforms.len() > 0:
     <table>
       <tr>
@@ -75,6 +79,9 @@
     
   </table>
   
+  </div>
+  <div id="footer">
+  <p>Written in the Nimrod Programming Language by <a href="http://picheta.me/">Dominik Picheta</a>.</p>
   </div>
 </body>
 </html>
