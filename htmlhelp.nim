@@ -114,9 +114,9 @@ when isMainModule:
   tab[0].addCol("Col 1", true, @[("class", "something"), ("blah", "something")])
   tab[0].addCol("Col 2", true)
   tab[2].addCol("Hello")
-  tab[2].addCol("I SHOULD BE IN FUCKING SCHOOL")
-  tab[2].addCol("With rachel.")
-  tab[2].addCol("And be kissing her.")
+  tab[2].addCol("I SHOULD BE IN SCHOOL")
+  tab[2].addCol("With R.")
+  tab[2].addCol("And be k....")
   echo tab.toPretty
   
   echo(" ")

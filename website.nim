@@ -634,7 +634,9 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
     
     # Loop through versions.
     var currentVerI = 0
+    
     while currentVerI < versions.len():
+      var columnAdded = false
       var pName = ""
       if versions[currentVerI].ver != "":
         pName = versions[currentVerI].os & "-" &
@@ -652,8 +654,15 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
             var weburl = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
                             [entry.c.hash[0..11], entry.p[pName].platform])
             table[2+cpuI].addCol(a(entry.c.hash[0..11], href = weburl), attrs=attrs)
-        
+            columnAdded = true
+
+      if not columnAdded:
+        # Add an empty column.
+        table[2+cpuI].addCol("", true)
+      
       currentVerI.inc()
+    
+
     
   for v in versions:
     table[1].addCol(v.ver, true)
