@@ -800,8 +800,11 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     # TODO: Don't use select here. Just sleep(1500). Then readLine.
     if select(readSocks, 1500) == 1 and readSocks.len == 0:
       var line = ""
-      doAssert state.sock.recvLine(line)
-      doAssert parseReply(line, "OK")
+      if not state.sock.recvLine(line):
+        raise newException(EInvalidValue, "recvLine failed."
+      if not parseReply(line, "OK"):
+        raise newException(EInvalidValue, "Incorrect welcome message from hub") 
+      
       echo("The hub accepted me!")
 
       if state.requestNewest and not state.reconnecting:
@@ -813,7 +816,7 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     else:
       raise newException(EInvalidValue,
                          "Hub didn't accept me. Waited 1.5 seconds.")
-  except EOS:
+  except EOS, EInvalidValue:
     echo(getCurrentExceptionMsg())
     s.close()
     echo("Waiting 5 seconds...")

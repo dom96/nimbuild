@@ -141,7 +141,7 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     riobj["do"] = newJString("redisinfo")
     state.sock.send($riobj & "\c\L")
     
-  except EOS:
+  except EOS, EInvalidValue, EAssertionFailed:
     echo(getCurrentExceptionMsg())
     s.close()
     echo("Waiting 5 seconds...")
