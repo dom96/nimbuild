@@ -16,8 +16,8 @@
 </head>
 <body>
   #var platforms: seq[string] = @[] # Every platform, from every commit.
-  #platforms = sortArchitectures(platforms).sortPlatforms()
-  #var entries = getCommits(state.database, platforms) 
+  #var entries = getCommits(state.database, platforms)
+  #platforms.sort(cmpPlatforms, Descending)
   <div id="header">
     NimBuild - Nimrod's build farm.
     ${genTopButtons(state.platforms, entries)}

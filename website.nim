@@ -1,7 +1,7 @@
 ## This is the SCGI Website and the hub.
 import 
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
-  htmlgen
+  htmlgen, algorithm
 import types, db, htmlhelp
 
 const
@@ -550,44 +550,34 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
   
-const order = ["linux", "windows", "macosx"]
-proc sortPlatforms(platforms: seq[string]): seq[string] =
-  result = @[]
-  var seps: array[0..order.len-1, seq[string]]
-  seps[0] = @[]
-  seps[1] = @[]
-  seps[2] = @[]
-  for p in platforms:
-    for i in 0..order.len()-1:
-      if p.startsWith(order[i]):
-        seps[i].add(p)
-        break
-  
-  for i in 0..order.len()-1:
-    result.add(seps[i])
-
-const archsOrder = ["x86", "x86_64", "ppc64"]
-proc sortArchitectures(platforms: seq[string]): seq[string] =
-  result = @[]
-  var seps: array[0..order.len-1, seq[string]]
-  seps[0] = @[]
-  seps[1] = @[]
-  seps[2] = @[]
-  for p in platforms:
-    for i in 0..archsOrder.len()-1:
-      if archsOrder[i] in p:
-        # Delete this platform from previous sequences.
-        for x in 0..archsOrder.len()-1:
-          for count, y in pairs(seps[x]):
-            if y == p:
-              seps[x].delete(count)
-              break
-        # Add this platform to the current sequence.
-        seps[i].add(p)
-
-  
-  for i in 0..archsOrder.len()-1:
-    result.add(seps[i])
+proc cmpPlatforms(a, b: string): int =
+  if a == b: return 0
+  var dashes = a.split('-')
+  var dashes2 = b.split('-')
+  if dashes[0] == dashes2[0]:
+    if dashes[1] == dashes2[1]: return system.cmp(a,b)
+    case dashes[1]
+    of "x86":
+      return 1
+    of "x86_64":
+      if dashes2[1] == "x86": return -1
+      else: return 1
+    of "ppc64":
+      if dashes2[1] == "x86" or dashes2[1] == "x86_64": return -1
+      else: return 1
+    else:
+      return system.cmp(dashes[1], dashes2[1])
+  else:
+    case dashes[0]
+    of "linux":
+      return 1
+    of "windows":
+      if dashes2[0] == "linux": return -1
+      else: return 1
+    of "macosx":
+      if dashes2[0] == "linux" or dashes2[0] == "windows": return -1
+      else: return 1
+    else: return system.cmp(a, b)
 
 proc findLatestCommit(entries: seq[TEntry], 
                       platform: string, 
@@ -692,7 +682,8 @@ proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
                             "commits/$2/nimrod_$1_csources.zip" %
                             [c.hash[0..11], platf.platform])
         csourceFound = true
-        csourceLatest = i == 0    
+        csourceLatest = i == 0
+        break
     i.inc()
         
   # Find out whether latest doc gen succeeded.
