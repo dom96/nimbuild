@@ -652,11 +652,9 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
 
       if not columnAdded:
         # Add an empty column.
-        table[2+cpuI].addCol("", true)
+        table[2+cpuI].addCol("")
       
       currentVerI.inc()
-    
-
     
   for v in versions:
     table[1].addCol(v.ver, true)
@@ -688,6 +686,7 @@ proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
         csourceFound = true
         csourceLatest = i == 0
         break
+    if csourceFound: break
     i.inc()
         
   # Find out whether latest doc gen succeeded.
