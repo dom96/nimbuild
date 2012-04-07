@@ -577,7 +577,11 @@ proc cmpPlatforms(a, b: string): int =
     of "macosx":
       if dashes2[0] == "linux" or dashes2[0] == "windows": return -1
       else: return 1
-    else: return system.cmp(a, b)
+    else:
+      if dashes2[0] == "linux" or dashes2[0] == "windows" or 
+         dashes2[0] == "macosx": return -1
+      else:
+        return system.cmp(a, b)
 
 proc findLatestCommit(entries: seq[TEntry], 
                       platform: string, 
