@@ -6,7 +6,8 @@ import types
 const
   ghRepos = ["https://github.com/Araq/Nimrod",
              "https://github.com/nimrod-code/nimbuild",
-             "https://github.com/nimrod-code/Aporia"]
+             "https://github.com/nimrod-code/Aporia",
+             "https://github.com/nimrod-code/babel"]
 
 type
   PState = ref TState
