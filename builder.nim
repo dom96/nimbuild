@@ -801,7 +801,7 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     if select(readSocks, 1500) == 1 and readSocks.len == 0:
       var line = ""
       if not state.sock.recvLine(line):
-        raise newException(EInvalidValue, "recvLine failed."
+        raise newException(EInvalidValue, "recvLine failed.")
       if not parseReply(line, "OK"):
         raise newException(EInvalidValue, "Incorrect welcome message from hub") 
       

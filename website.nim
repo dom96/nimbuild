@@ -643,7 +643,7 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
         if entries.findLatestCommit(pName, latestCommit):
           var (entry, latest) = latestCommit
           var attrs: seq[tuple[name, content: string]] = @[]
-          attrs.add(("class", if latest: "green" else: "orange"))
+          attrs.add(("class", if latest: "link green" else: "link orange"))
           if pName in entry.p:
             var weburl = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
                             [entry.c.hash[0..11], entry.p[pName].platform])
