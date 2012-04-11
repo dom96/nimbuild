@@ -48,6 +48,7 @@ type
     zipLoc: string ## Location of where to copy the files for zipping.
     docgen: bool ## Determines whether to generate docs.
     csourceGen: bool ## Determines whether to generate csources.
+    csourceExtraBuildArgs: string
     platform: string
     hubAddr: string
     hubPort: int
@@ -121,6 +122,8 @@ proc parseConfig(state: PState, path: string) =
           state.docgen = if normalize(n.value) == "true": true else: false
         of "csourcegen":
           state.csourceGen = if normalize(n.value) == "true": true else: false
+        of "csourceextrabuildargs":
+          state.csourceExtraBuildArgs = n.value
         of "hubaddr":
           state.hubAddr = n.value
           inc(count)
@@ -161,6 +164,8 @@ proc defaultState(): PState =
   result.pinged = -1.0
   
   result.progress.currentProc = noJob
+
+  result.csourceExtraBuildArgs = ""
 
 # Build of Nimrod/tests/docs gen
 proc buildFailed(state: PState, desc: string) =
@@ -451,8 +456,10 @@ proc nextStage(state: PState) =
       state.buildProgressing("Executing unzip")
   of unzipCSources:
     state.progress.currentProc = buildSh
+    var args = @["build.sh"]
+    if state.csourceExtraBuildArgs != "": args.add(state.csourceExtraBuildArgs)
     state.progress.p = state.startMyProcess(findExe("sh"),
-        state.nimLoc, "build.sh")
+        state.nimLoc, args)
     state.buildProgressing("Compiling C sources")
   of buildSh:
     state.progress.currentProc = compileKoch
