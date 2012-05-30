@@ -477,6 +477,9 @@ proc nextStage(state: PState) =
         state.nimLoc, "boot", "-d:release")
     state.buildProgressing("Bootstrapping Nimrod in release mode")
   of bootNim:
+    # Set +x on nimrod binary.
+    setFilePermissions(state.nimLoc / "bin" / "nimrod", webFP)
+  
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
     var dir = state.zipLoc / folderName

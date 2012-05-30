@@ -1,4 +1,4 @@
-import irc, sockets, asyncio, json, os, strutils, db, times, redis
+import irc, sockets, asyncio, json, os, strutils, db, times, redis, irclog
 
 
 type
@@ -10,6 +10,7 @@ type
     hubPort: TPort
     database: TDb
     dbConnected: bool
+    logger: PLogger
 
   TSeenType = enum
     PSeenJoin, PSeenPart, PSeenMsg, PSeenNick, PSeenQuit
@@ -262,6 +263,9 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
     else:
       nil # TODO: ?
 
+    # Logs:
+    state.logger.log(event)
+
 proc open(port: TPort = TPort(5123)): PState =
   new(result)
   result.dispatcher = newDispatcher()
@@ -276,6 +280,8 @@ proc open(port: TPort = TPort(5123)): PState =
   result.dispatcher.register(result.ircClient)
 
   result.dbConnected = false
+
+  result.logger = newLogger()
 
 var state = ircbot.open() # Connect to the website and the IRC server.
 
