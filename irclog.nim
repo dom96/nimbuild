@@ -18,7 +18,7 @@ proc newLogger*(): PLogger =
   new(result)
   result.startTime = getTime().getGMTime()
   result.items = @[]
-  let log = logFilepath / result.startTime.format("dd'-'MM'-'yyyy'.html'")
+  let log = logFilepath / result.startTime.format("dd'-'MM'-'yyyy'.json'")
   if existsFile(log):
     result = loadLogger(log)
 
