@@ -1,4 +1,5 @@
 import htmlgen, times, irc, marshal, streams, strutils, os
+from xmltree import escape
 
 type
   TLogger = object # Items get erased when new day starts.
@@ -47,8 +48,8 @@ proc renderItems(logger: PLogger): string =
     
     if c == "":
       result.add(tr(td(i.time.getGMTime().format("HH':'mm':'ss")),
-                    td(class="nick", i.msg.nick),
-                    td(class="msg", message)))
+                    td(class="nick", xmltree.escape(i.msg.nick)),
+                    td(class="msg", xmltree.escape(message))))
     else:
       case c
       of "join":
@@ -65,7 +66,7 @@ proc renderItems(logger: PLogger): string =
       result.add(tr(class=c,
                     td(i.time.getGMTime().format("HH':'mm':'ss")),
                     td(class="nick", "*"),
-                    td(class="msg", message)))
+                    td(class="msg", xmltree.escape(message))))
 
 proc renderHtml(logger: PLogger, index = false): string =
   let previousDay = logger.startTime - (newInterval(days=1))
@@ -111,5 +112,10 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
     logger.save(logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
   else: nil
 
-
-  
+proc log*(logger: PLogger, nick, msg: string) =
+  var m: TIRCEvent
+  m.typ = EvMsg
+  m.cmd = MPrivMsg
+  m.params = @[msg]
+  m.nick = nick
+  logger.log(m)

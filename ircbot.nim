@@ -194,6 +194,7 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
       let words = msg.split(' ')
       template pm(msg: string): stmt = 
         state.ircClient[].privmsg(event.origin, msg)
+        state.logger.log("NimBot", msg)
       case words[0]
       of "!ping": pm("pong")
       of "!lag":
