@@ -9,7 +9,10 @@ type
 # TODO: Current implementation writes whole files, every message. Not really
 # sure how else to approach this.
 
-const logFilepath = "/home/nimrod/irclogs/"
+const 
+  logFilepath = "/home/nimrod/public_html/irclogs"
+  webFP = {fpUserRead, fpUserWrite, fpUserExec,
+           fpGroupRead, fpGroupExec, fpOthersRead, fpOthersExec}
 
 proc loadLogger(f: string): PLogger =
   load(newFilestream(f, fmRead), result)
@@ -71,8 +74,8 @@ proc renderHtml(logger: PLogger, index = false): string =
   result = 
     html(
       head(title("#nimrod logs for " & logger.startTime.format("dd'-'MM'-'yyyy")),
-           link(rel="stylesheet", href="static/css/boilerplate.css"),
-           link(rel="stylesheet", href="static/css/log.css")
+           link(rel="stylesheet", href="/static/css/boilerplate.css"),
+           link(rel="stylesheet", href="/static/css/log.css")
       ),
       body(
         htmlgen.`div`(id="controls",
@@ -89,8 +92,9 @@ proc renderHtml(logger: PLogger, index = false): string =
 
 proc save(logger: PLogger, filename: string, index = false) =
   writeFile(filename, renderHtml(logger, index))
-  if not index:
-    writeFile(filename.changeFileExt("json"), $$logger)
+  setFilePermissions(filename, webFP)
+  #if not index:
+  #  writeFile(filename.changeFileExt("json"), $$logger)
 
 proc log*(logger: PLogger, msg: TIRCEvent) =
   if getTime().getGMTime().yearday != logger.startTime.yearday:

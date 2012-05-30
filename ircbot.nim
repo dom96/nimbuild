@@ -235,7 +235,10 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
             pm("I have not seen " & nick)
         else:
           pm("Syntax: !seen <nick>")
-
+      
+      if words[0].startswith("!kirbyrape"):
+        pm("(>^(>O_O)>")
+      
       # TODO: ... commands
 
       # -- Seen
