@@ -188,6 +188,9 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
     echo("Reconnected successfully!")
   of EvMsg:
     echo("< ", event.raw)
+    # Logs:
+    state.logger.log(event)
+    
     case event.cmd
     of MPrivMsg:
       let msg = event.params[event.params.len-1]
@@ -266,9 +269,6 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, userArg: PObject) =
       state.database.setSeen(seenNick)
     else:
       nil # TODO: ?
-
-    # Logs:
-    state.logger.log(event)
 
 proc open(port: TPort = TPort(5123)): PState =
   new(result)
