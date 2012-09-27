@@ -77,32 +77,38 @@ proc parseConfig(state: PState, path: string) =
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
 
-proc handleAccept(s: PAsyncSocket, arg: PObject)
+proc handleAccept(s: PAsyncSocket, state: PState)
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, userArg: PObject)
+                   input: string, headers: PStringTable, state: PState)
 proc open(configPath: string): PState =
-  new(result)
-  parseConfig(result, configPath)
-  result.dispatcher = newDispatcher()
+  var cres: PState
+  new(cres)
+  parseConfig(cres, configPath)
+  cres.dispatcher = newDispatcher()
 
-  result.sock = AsyncSocket(userArg = result)
-  result.sock.bindAddr(TPort(result.bindPort), result.bindAddr)
-  result.sock.listen()
-  result.sock.handleAccept = handleAccept
-  result.modules = @[]
-  result.platforms = @[]
+  cres.sock = AsyncSocket()
+  cres.sock.bindAddr(TPort(cres.bindPort), cres.bindAddr)
+  cres.sock.listen()
+  cres.sock.handleAccept = proc (s: PAsyncSocket) = handleAccept(s, cres)
+  cres.modules = @[]
+  cres.platforms = @[]
   
-  result.dispatcher.register(result.sock)
+  cres.dispatcher.register(cres.sock)
   
   # Open scgi instance
-  result.scgi = open(handleRequest, TPort(result.scgiPort), userArg = result)
-  result.dispatcher.register(result.scgi)
+  let hr = proc (server: var TAsyncScgiState, client: TSocket, 
+                 input: string, headers: PStringTable) =
+             handleRequest(server, client, input, headers, cres)
+  cres.scgi = open(hr, TPort(cres.scgiPort))
+  cres.dispatcher.register(cres.scgi)
   
   # Connect to the database
   try:
-    result.database = db.open("localhost", TPort(result.redisPort))
+    cres.database = db.open("localhost", TPort(cres.redisPort))
   except EOS:
     quit("Couldn't connect to redis: " & OSErrorMsg())
+
+  result = cres
 
 # Modules
 
@@ -129,8 +135,7 @@ proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
   echo(IPAddr, " connected.")
 
   # Add this module to the dispatcher.
-  client.handleRead = handleModuleMsg
-  client.userArg = state
+  client.handleRead = proc (s:PAsyncSocket) = handleModuleMsg(s, state)
   module.delegID = state.dispatcher.register(client)
 
   state.modules.add(module)
@@ -761,8 +766,7 @@ proc safeSend(client: TSocket, data: string) =
     echo("[Warning] Got error from send(): ", OSErrorMsg())
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, userArg: PObject) =
-  var state = PState(userArg)
+                   input: string, headers: PStringTable, state: PState) =
   echo(headers["HTTP_USER_AGENT"])
   echo(headers)
   if headers["REQUEST_METHOD"] == "GET":
@@ -788,8 +792,7 @@ proc cleanup(state: PState) =
   
   state.sock.close()
 
-proc handleAccept(s: PAsyncSocket, arg: PObject) =
-  var state = PState(arg)
+proc handleAccept(s: PAsyncSocket, state: PState) =
   # Connection from a module
   var (client, IPAddr) = s.acceptAddr()
   var clientS = @[client.getSocket]

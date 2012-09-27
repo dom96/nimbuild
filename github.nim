@@ -28,8 +28,7 @@ proc parseReply(line: string, expect: string): Bool =
   return jsonDoc["reply"].str == expect
 
 proc hubConnect(state: PState)
-proc handleConnect(s: PAsyncSocket, userArg: PObject) =
-  var state = PState(userArg)
+proc handleConnect(s: PAsyncSocket, state: PState) =
   try:
     # Send greeting
     var obj = newJObject()
@@ -57,8 +56,7 @@ proc handleMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
 
 
-proc handleModuleMessage(s: PAsyncSocket, userArg: PObject) =
-  var state = PState(userArg)
+proc handleModuleMessage(s: PAsyncSocket, state: PState) =
   var line = ""
   if not state.sock.recvLine(line):
     echo(OSErrorMsg())
@@ -73,29 +71,32 @@ proc handleModuleMessage(s: PAsyncSocket, userArg: PObject) =
 proc hubConnect(state: PState) =
   state.sock = AsyncSocket()
   state.sock.connect("127.0.0.1", state.hubPort)
-  state.sock.userArg = state
-  state.sock.handleConnect = handleConnect
-  state.sock.handleRead = handleModuleMessage
+  state.sock.handleConnect = proc (s: PAsyncSocket) = handleConnect(s, state)
+  state.sock.handleRead = proc (s: PAsyncSocket) = handleModuleMessage(s, state)
   state.dispatcher.register(state.sock)
   
   state.platform = "linux-x86"
   state.timeReconnected = -1.0
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable,
-                   userArg: PObject)
+                   input: string, headers: PStringTable, state: PState)
 proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
-  new(result)
+  var cres: PState
+  new(cres)
   
-  result.dispatcher = newDispatcher()
+  cres.dispatcher = newDispatcher()
   
-  result.hubPort = port
+  cres.hubPort = port
 
-  result.hubConnect()
+  cres.hubConnect()
   
   # Open scgi stuff
-  result.scgi = open(handleRequest, scgiPort, userArg = result)
-  result.dispatcher.register(result.scgi)
+  let hr = proc (server: var TAsyncScgiState, client: TSocket, 
+                 input: string, headers: PStringTable) = 
+             handleRequest(server, client, input, headers, cres)
+  cres.scgi = open(hr, scgiPort)
+  cres.dispatcher.register(cres.scgi)
+  result = cres
 
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
   var obj = newJObject()
@@ -112,8 +113,7 @@ proc safeSend(client: TSocket, data: string) =
 
 proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
                    input: string, headers: PStringTable,
-                   userArg: PObject) =
-  var state = PState(userArg)
+                   state: PState) =
   var hostname = ""
   try:
     hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name

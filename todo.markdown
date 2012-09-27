@@ -6,3 +6,12 @@
 * grep "TODO"
 * <del>Generate C Sources for every platform.</del>
 * <del>Include GPL license in with the distribution. Also readme file which mentions that this is a minimal distribution.</del>
+* Redesign
+* Fix nimbot
+* Integration with Github status API
+  * When a pull request is made nimbuild should be intelligent on what it compiles
+    I.e. If the file edited is in the compiler/ directory then nimrod should be bootstrapped
+    if the file edited is a test, the test should be ran
+    if the file edited is a module in the stdlib it should just be compiled
+    * This should then be reported to github...
+  

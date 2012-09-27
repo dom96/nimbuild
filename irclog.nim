@@ -69,8 +69,8 @@ proc renderItems(logger: PLogger): string =
                     td(class="msg", xmltree.escape(message))))
 
 proc renderHtml(logger: PLogger, index = false): string =
-  let previousDay = logger.startTime - (newInterval(days=1))
-  let nextDay     = logger.startTime + (newInterval(days=1))
+  let previousDay = logger.startTime - (initInterval(days=1))
+  let nextDay     = logger.startTime + (initInterval(days=1))
   let nextUrl     = if index: "" else: nextDay.format("dd'-'MM'-'yyyy'.html'")
   result = 
     html(

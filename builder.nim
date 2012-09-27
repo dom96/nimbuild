@@ -298,7 +298,7 @@ proc cSrcGenSucceeded(state: PState) =
   echo("csource gen success")
 
 proc startMyProcess(state: PState, cmd, workDir: string,
-                    args: openarray[string]): PProcess =
+                    args: varargs[string]): PProcess =
   if isAbsolute(cmd):
     result = startProcess(cmd.changeFileExt(ExeExt), workDir, args, nil)
   else:
@@ -403,22 +403,22 @@ proc setUploadLogs(state: PState) =
 
   # Upload the log.txt file
   if state.hubAddr != "127.0.0.1":
-    state.ftp[].connect()
-    assert state.ftp[].pwd().startsWith("/home/nimrod")
+    state.ftp.connect()
+    assert state.ftp.pwd().startsWith("/home/nimrod")
     var commitHash = state.progress.payload["after"].str
     var folderName = makeCommitPath(state.platform, commitHash)
     try:
-      state.ftp[].cd(state.ftpUploadDir / "commits" / folderName)
+      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
     except EInvalidReply:
       # Create `folderName`. This is for if the bootstrap fails, and doesn't
       # get to the ftp portion, resulting in this folder not being created.
-      state.ftp[].cd(state.ftpUploadDir / "commits")
-      state.ftp[].createDir(folderName, true)
-      state.ftp[].chmod(folderName, webFP)
-      state.ftp[].cd(folderName)
+      state.ftp.cd(state.ftpUploadDir / "commits")
+      state.ftp.createDir(folderName, true)
+      state.ftp.chmod(folderName, webFP)
+      state.ftp.cd(folderName)
       
     echo("Uploading log.txt")
-    state.ftp[].store(state.websiteLoc / "commits" /
+    state.ftp.store(state.websiteLoc / "commits" /
               folderName / "log.txt", "log.txt", async = true)
   else:
     echo("Local builder, no need to upload logs. Build complete.")
@@ -517,15 +517,15 @@ proc nextStage(state: PState) =
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadNim
     if state.hubAddr != "127.0.0.1":
-      state.ftp[].connect()
-      assert state.ftp[].pwd().startsWith("/home/nimrod")
-      state.ftp[].cd(state.ftpUploadDir / "commits")
+      state.ftp.connect()
+      assert state.ftp.pwd().startsWith("/home/nimrod")
+      state.ftp.cd(state.ftpUploadDir / "commits")
       
-      try: state.ftp[].createDir(fileName, true)
+      try: state.ftp.createDir(fileName, true)
       except EInvalidReply: nil # TODO: Check properly whether the folder exists
       
-      state.ftp[].chmod(fileName, webFP)
-      state.ftp[].store(state.websiteLoc / "commits" / saveAs, saveAs,
+      state.ftp.chmod(fileName, webFP)
+      state.ftp.store(state.websiteLoc / "commits" / saveAs, saveAs,
                       async = true)
       state.buildProgressing("Uploading files...")
     else: state.nextStage()
@@ -555,10 +555,10 @@ proc nextStage(state: PState) =
     # --- FTP file upload, for binaries. ---
     state.progress.currentProc = uploadTests
     if state.hubAddr != "127.0.0.1":
-      state.ftp[].connect()
-      assert state.ftp[].pwd().startsWith("/home/nimrod")
-      state.ftp[].cd(state.ftpUploadDir / "commits" / folderName)
-      state.ftp[].store(state.websiteLoc / "commits" /
+      state.ftp.connect()
+      assert state.ftp.pwd().startsWith("/home/nimrod")
+      state.ftp.cd(state.ftpUploadDir / "commits" / folderName)
+      state.ftp.store(state.websiteLoc / "commits" /
                       folderName / "testresults.html", "testresults.html",
                       async = true)
       testProgressing(state, "Uploading test results.")
@@ -796,8 +796,7 @@ proc parseReply(line: string, expect: string): Bool =
   return jsonDoc["reply"].str == expect
 
 proc hubConnect(state: PState, reconnect: bool)
-proc handleConnect(s: PAsyncSocket, userArg: PObject) =
-  var state = PState(userArg)
+proc handleConnect(s: PAsyncSocket, state: PState) =
   try:
     # Send greeting
     var obj = newJObject()
@@ -833,17 +832,16 @@ proc handleConnect(s: PAsyncSocket, userArg: PObject) =
     sleep(5000)
     try: hubConnect(state, true) except EOS: echo(getCurrentExceptionMsg()) 
 
-proc handleHubMessage(s: PAsyncSocket, userArg: PObject)
+proc handleHubMessage(s: PAsyncSocket, state: PState)
 proc hubConnect(state: PState, reconnect: bool) =
-  state.sock = AsyncSocket(userArg = state)
-  state.sock.handleConnect = handleConnect
-  state.sock.handleRead = handleHubMessage
+  state.sock = AsyncSocket()
+  state.sock.handleConnect = proc (s: PAsyncSocket) = handleConnect(s, state)
+  state.sock.handleRead = proc (s: PAsyncSocket) = handleHubMessage(s, state)
   state.reconnecting = reconnect
   state.sock.connect(state.hubAddr, TPort(state.hubPort))
   state.dispatcher.register(state.sock)
 
-proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PObject) =
-  var state = PState(userArg)
+proc handleFtp(ftp: PAsyncFTPClient, ev: TFTPEvent, state: PState) =
   assert(state.progress.currentProc in {uploadNim, uploadTests, uploadLogs})
   if state.hubAddr != "127.0.0.1":
     case ev.typ
@@ -853,9 +851,9 @@ proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PObject) =
       var path = state.ftpUploadDir /
                  ev.filename[state.websiteLoc.len().. -1]
       echo("Changing permissions for ", path)
-      state.ftp[].chmod(path, webFP)
+      state.ftp.chmod(path, webFP)
 
-      state.ftp[].close()
+      state.ftp.close()
       state.nextStage()
     of EvTransferProgress:
       # TODO: Output this less often.
@@ -864,31 +862,34 @@ proc handleFtp(ftp: var TAsyncFTPClient, ev: TFTPEvent, userArg: PObject) =
   else: assert(false)
 
 proc open(configPath: string): PState =
-  result = defaultState()
+  var cres: PState
+  cres = defaultState()
   # Get config
-  parseConfig(result, configPath)
-  if not existsDir(result.nimLoc):
-    quit(result.nimLoc & " does not exist!", quitFailure)
+  parseConfig(cres, configPath)
+  if not existsDir(cres.nimLoc):
+    quit(cres.nimLoc & " does not exist!", quitFailure)
   
   # Init dispatcher
-  result.dispatcher = newDispatcher()
+  cres.dispatcher = newDispatcher()
   
   # Connect to the hub
-  result.hubConnect(false)
+  cres.hubConnect(false)
 
   # Open log file
-  result.logFile = open(result.logLoc, fmAppend)
+  cres.logFile = open(cres.logLoc, fmAppend)
   
   # Init status
-  result.status = initStatus()
+  cres.status = initStatus()
 
   # Init ftp client.
-  if result.hubAddr != "127.0.0.1":
-    result.ftp = AsyncFTPClient(result.hubAddr,
-                          user = result.ftpUser, pass = result.ftpPass,
-                          userArg = result)
-    result.ftp.handleEvent = handleFtp
-    result.dispatcher.register(result.ftp)
+  if cres.hubAddr != "127.0.0.1":
+    cres.ftp = AsyncFTPClient(cres.hubAddr,
+                          user = cres.ftpUser, pass = cres.ftpPass)
+    let he = proc (f: PAsyncFTPClient, ev: TFTPEvent) = handleFtp(f, ev, cres)
+    cres.ftp.handleEvent = he
+    cres.dispatcher.register(cres.ftp)
+
+  result = cres
 
 proc fileInModified(json: PJsonNode, file: string): bool =
   for commit in items(json["commits"].elems):
@@ -945,8 +946,7 @@ proc reconnect(state: PState) =
   except EOS:
     echo(getCurrentExceptionMsg())
 
-proc handleHubMessage(s: PAsyncSocket, userArg: PObject) =
-  var state = PState(userArg)
+proc handleHubMessage(s: PAsyncSocket, state: PState) =
   var line = ""
   if state.sock.recvLine(line):
     if line != "":
