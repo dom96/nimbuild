@@ -191,3 +191,113 @@ div#footer {
   color: #ffffff;
   text-align: center;
 }
+
+/* The new platform build result divs */
+
+div.platfBuildResult {
+  width: 32%;
+  min-width: 350px;
+  border-radius: 2px 0px 0px 2px;
+  float: left;
+  margin-right: 6pt;
+  margin-bottom: 2pt;
+  border-right: 2px solid #1d1d1d;
+}
+
+div.platfBuildResult p {
+  padding-left: 1%;
+}
+
+div.platfBuildResult p.commitMsg {
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+div.platfBuildResult div.header {
+  background-color: #5D5D5D;
+  background: -moz-linear-gradient(top, #5D5D5D, #4D4D4D);
+  background: -webkit-linear-gradient(top, #5D5D5D, #4D4D4D);
+  background: -o-linear-gradient(top, #5D5D5D, #4D4D4D);
+  color: white;
+  padding-left: 5px;
+  font-weight: bold;
+  font-size: 10pt;
+  padding-top: 4px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #3d3d3d;
+  border-top: 2px solid #3d3d3d;
+}
+
+div.platfBuildResult div.lastResults div.half, div.platfBuildResult div.lastResults div.branch {
+  margin-bottom: 2px;
+}
+
+div.platfSuccess {
+  border-left: 7px solid #43B800;
+}
+
+div.platfWarning {
+  border-left: 7px solid #E87E15;
+}
+
+div.platfProgress {
+  border-left: 7px solid #108BDE;
+}
+
+div.platfFailure {
+  border-left: 7px solid #E80C0C;
+}
+
+div.indivSuccess {
+  border-top: 3px solid #43B800;
+}
+
+div.indivWarning {
+  border-top: 3px solid #E87E15;
+}
+
+div.indivFailure {
+  border-top: 3px solid #E80C0C;
+}
+
+div.platfBuildResult div.half {
+  width: 14%;
+  float: left;
+  padding-left: 1%;
+}
+
+div.platfBuildResult .lastResults {
+  padding-bottom: 2px;
+}
+
+div.platfBuildResult .lastResults .branch {
+  width: 69%;
+  float: left;
+  padding-left: 1%;
+  border-top: 3px solid #8A8A8A;
+}
+
+div.platfBuildResult .lastResults .branch span {
+  border-radius: 2px 2px 2px 2px;
+  color: white;
+  font-size: 10pt;
+  padding: 1px 4px 2px 4px; /* Top right bottom left */
+  background-color: #0070BF;
+  cursor: help;
+}
+
+div.platfBuildResult .lastResults .master span {
+  background-color: #BF0000;
+}
+
+div.platfBuildResult .buildInfo {
+  padding-top: 5px;
+  padding-right: 5px;
+  border-bottom: 2px solid #1d1d1d;
+}
+
+div#resultsWrapper {
+  width: 100%;
+  float: left;
+}
