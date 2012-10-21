@@ -16,9 +16,10 @@ type
   TEntry* = tuple[c: TCommit, p: seq[TPlatform]]
   
   TCommit* = object
-    commitMsg*, username*, hash*: string
+    commitMsg*, username*, hash*, branch*: string
     date*: TTime
 
+  # TODO: rename to TBuild?
   TPlatform* = object
     buildResult*: TBuildResult
     testResult*: TTestResult
@@ -55,13 +56,14 @@ proc globalProperty*(database: TDb, commitHash, property, value: string) =
   else:
     echo("[INFO:REDIS] '$1' new field added to hash" % [property])
 
-proc addCommit*(database: TDb, commitHash, commitMsg, user: string) =
+proc addCommit*(database: TDb, commitHash, commitMsg, user, branch: string) =
   # Add the commit hash to the `commits` list.
   discard database.r.lPush(listName, commitHash)
   # Add the commit message, current date and username as a property
   globalProperty(database, commitHash, "commitMsg", commitMsg)
   globalProperty(database, commitHash, "date", $int(getTime()))
   globalProperty(database, commitHash, "username", user)
+  globalProperty(database, commitHash, "branch", branch)
 
 proc keepAlive*(database: var TDb) =
   ## Keep the connection alive. Ping redis in this case. This functions does
@@ -71,7 +73,7 @@ proc keepAlive*(database: var TDb) =
     echo("PING -> redis")
     assert(database.r.ping() == "PONG")
     database.lastPing = t
-    
+
 proc getCommits*(database: TDb,
                  plStr: var seq[string]): seq[TEntry] =
   result = @[]
@@ -84,8 +86,9 @@ proc getCommits*(database: TDb,
       of "commitmsg": commit.commitMsg = value
       of "date": commit.date = TTime(parseInt(value))
       of "username": commit.username = value
+      of "branch": commit.branch = value
       else:
-        echo(key)
+        echo("[redis] Key not found: ", key)
         assert(false)
 
     var platformsRaw = database.r.lrange(c & ":platforms", 0, -1)
@@ -111,7 +114,7 @@ proc getCommits*(database: TDb,
         of "csources":
           platform.csources = if value == "t": true else: false
         else:
-          echo(normalize(key))
+          echo("[redis] platf key not found: " & normalize(key))
           assert(false)
       
       platform.platform = p

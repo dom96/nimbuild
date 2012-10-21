@@ -1,8 +1,10 @@
 ## This is the SCGI Website and the hub.
 import 
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
-  htmlgen, algorithm
+  htmlgen, algorithm, tables
 import types, db, htmlhelp
+
+import jester
 
 const
   websiteURL = "http://build.nimrod-code.org"
@@ -14,8 +16,8 @@ type
   TState = object of TObject
     dispatcher: PDispatcher
     sock: PAsyncSocket ## Hub server socket. All modules connect to this.
+    req: TRequest
     modules: seq[TModule]
-    scgi: PAsyncScgiState
     database: TDb
     platforms: HPlatformStatus
     password: string ## The password that foreign modules need to be accepted.
@@ -78,8 +80,6 @@ proc parseConfig(state: PState, path: string) =
     quit("Cannot open configuration file: " & path, quitFailure)
 
 proc handleAccept(s: PAsyncSocket, state: PState)
-proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, state: PState)
 proc open(configPath: string): PState =
   var cres: PState
   new(cres)
@@ -95,12 +95,7 @@ proc open(configPath: string): PState =
   
   cres.dispatcher.register(cres.sock)
   
-  # Open scgi instance
-  let hr = proc (server: var TAsyncScgiState, client: TSocket, 
-                 input: string, headers: PStringTable) =
-             handleRequest(server, client, input, headers, cres)
-  cres.scgi = open(hr, TPort(cres.scgiPort))
-  cres.dispatcher.register(cres.scgi)
+  cres.dispatcher.register(port = TPort(cres.scgiPort), http = true) # TODO: HTTP config.
   
   # Connect to the database
   try:
@@ -139,6 +134,13 @@ proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
   module.delegID = state.dispatcher.register(client)
 
   state.modules.add(module)
+
+proc findBuilderModule(state: PState, p: string, module: var TModule): bool =
+  result = false
+  for i in state.modules:
+    if i.name == "builder" and i.platform == p:
+      module = i
+      return true
 
 proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   # { "name": "modulename" }
@@ -325,28 +327,27 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     if "araq/nimrod" in json["payload"]["repository"]["url"].str.toLower():
       # Check if the commit exists.
       if not state.database.commitExists(json["payload"]["after"].str):
-        # Make sure this is the master branch.
-        if json["payload"]["ref"].str == "refs/heads/master":
-          var commits = json["payload"]["commits"]
-          var latestCommit = commits[commits.len-1]
-          # Add commit to database
-          state.database.addCommit(json["payload"]["after"].str,
-              latestCommit["message"].str,
-              latestCommit["author"]["username"].str)
+        # Get the branch.
+        let branch = json["payload"]["ref"].str[11 .. -1]
+        var commits = json["payload"]["commits"]
+        var latestCommit = commits[commits.len-1]
+        # Add commit to database
+        state.database.addCommit(json["payload"]["after"].str,
+            latestCommit["message"].str,
+            latestCommit["author"]["username"].str,
+            branch)
 
-          # Send this message to the "builder" modules
-          for module in items(state.modules):
-            if module.name == "builder":
-              state.database.addPlatform(json["payload"]["after"].str,
-                  module.platform)
-             
-              # Add "rebuild" flag.
-              json["rebuild"] = newJBool(false)
-                 
-              module.sock.send($json & "\c\L")
-        else:
-          echo("Not master branch, not rebuilding. Got: ",
-               json["payload"]["ref"].str)
+        # Send this message to the "builder" modules
+        for module in items(state.modules):
+          if module.name == "builder":
+            state.database.addPlatform(json["payload"]["after"].str,
+                module.platform)
+           
+            # Add "rebuild" flag.
+            json["rebuild"] = newJBool(false)
+            
+            module.sock.send($json & "\c\L")
+
                 
       else:
         echo("Commit already exists. Not rebuilding.")
@@ -519,21 +520,20 @@ proc getUrl(c: TCommit, p: TPlatform): tuple[weburl, logurl: string] =
   var logurl = joinUrl(weburl, "log.txt")
   return (weburl, logurl)
 
-proc genCssPath(state: PState): string =
-  var reqPath = state.scgi.headers["REQUEST_URI"]
-  if reqPath.endswith("/"):
-    return ""
-  else: return reqPath & "/"
+proc isBuilding(platforms: HPlatformStatus, p: string, c: TCommit): bool =
+  if p in platforms:
+    return platforms[p].hash == c.hash
+  return false
 
 proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
-                       cssPath: string): string =
+                       req: TRequest): string =
   result = ""
   case p.buildResult
   of bUnknown:
     # Check whether this platform is currently building this commit.
-    if p.platform in platforms:
-      if platforms[p.platform].hash == c.hash:
-        result.add("<img src=\"$1static/images/progress.gif\"/>" % [cssPath])
+    if isBuilding(platforms, p.platform, c):
+        result.add("<img src=\"$1\"/>" %
+                   [req.makeUri("static/images/progress.gif", absolute = false)])
   of bFail:
     var (weburl, logurl) = getUrl(c, p)
     result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
@@ -541,10 +541,9 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
   result.add(" ")
   case p.testResult
   of tUnknown:
-    if p.platform in platforms:
-      if platforms[p.platform].hash == c.hash:
-        result.add("<img src=\"$1static/images/progress.gif\"/>" %
-                 [cssPath])
+    if isBuilding(platforms, p.platform, c):
+        result.add("<img src=\"$1\"/>" %
+                 [req.makeUri("static/images/progress.gif", absolute = false)])
   of tFail:
     var (weburl, logurl) = getUrl(c, p)
     result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
@@ -554,7 +553,55 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
     var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
+
+proc genBuildResult(state: PState, c: TCommit, p: TPlatform): string =
+  result = ""
+  case p.buildResult
+  of bUnknown:
+    # Check whether this platform is currently building this commit.
+    if isBuilding(state.platforms, p.platform, c):
+      result.add(htmlgen.`div`(class = "half indivUnknown", 
+                   img(alt = "Building", 
+                       src = state.req.makeUri("public/images/progress.gif",
+                           absolute = false))
+                 ))
+    else:
+      result.add(htmlgen.`div`(class = "half indivUnknown", 
+                 htmlgen.p("Unknown")))
+  of bFail:
+    var (weburl, logurl) = getUrl(c, p)
+    result.add(htmlgen.`div`(class = "half indivFailure", 
+                 a(href = logurl, class = "fail", "Fail")
+               ))
+  of bSuccess:
+    result.add(htmlgen.`div`(class = "half indivSuccess", "OK"))
   
+proc genTestResult(state: PState, c: TCommit, p: TPlatform): string =
+  result = ""
+  case p.testResult
+  of tUnknown:
+    if isBuilding(state.platforms, p.platform, c):
+      result.add(htmlgen.`div`(class = "half indivUnknown", 
+                   img(alt = "Building",
+                       src = state.req.makeUri("public/images/progress.gif",
+                           absolute = false))
+                 ))
+    else:
+      result.add(htmlgen.`div`(class = "half indivUnknown", 
+                 htmlgen.p("Unknown")))
+  of tFail:
+    var (weburl, logurl) = getUrl(c, p)
+    result.add(htmlgen.`div`(class = "half indivFailure", 
+                 a(href = logurl, class = "fail", "Fail")
+               ))
+  of tSuccess:
+    var (weburl, logurl) = getUrl(c, p)
+    var testresultsURL = joinUrl(weburl, "testresults.html")
+    result.add(htmlgen.`div`(class = "half indivSuccess", 
+                 a(href = testResultsURL, class = "success", 
+                   $(p.passed) & "/" & $(p.total-p.skipped))
+               ))
+
 proc cmpPlatforms(a, b: string): int =
   if a == b: return 0
   var dashes = a.split('-')
@@ -620,7 +667,7 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
     if spl[0] notin OSes: OSes.add(spl[0])
     if spl[1] notin CPUs: CPUs.add(spl[1])
   
-  var table = initTable()
+  var table = htmlhelp.initTable()
   table.addRow()
   table.addRow() # For Versions.
   table[0].addCol("", true)
@@ -715,74 +762,82 @@ proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
   result.add(a(span("", class = "book") & 
                 span("Documentation", class = "platform"),
                class = docClass, href = docWeb))
-    
-discard """
-proc genDownloadButtons(entries: seq[TEntry],
-                        platforms: seq[string]): string =
+
+proc genCommitUrl(hash: string): string =
+  return joinUrl("https://github.com/Araq/Nimrod/commit/", hash)
+
+proc genUserUrl(user: string): string = 
+  return joinUrl("https://github.com/", user)
+
+proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): string =
+  # Platform name -> [branch, html generated]
+  var htmlHash = initTable[string, PStringTable]()
+  for entry in items(entr):
+    let (commit, builds) = (entry.c, entry.p)
+    for build in builds:
+      if isBuilding(state.platforms, build.platform, commit):
+        continue # If the builder is currently building it, don't show it here.
+      if not htmlHash.hasKey(build.platform):
+        htmlHash[build.platform] = newStringTable(modeCaseSensitive)
+      let thisBranch = (if isNil(commit.branch): "master" else: commit.branch)
+      assert thisBranch != ""
+      
+      if htmlHash[build.platform].hasKey(thisBranch):
+        # HTML for this branch has already been generated.
+        continue
+      
+      var thisHtml = htmlgen.`div`(class = "lastResults",
+        htmlgen.`div`(class = "branch " & (if thisBranch == "master": "master" else: ""),
+          span(title="Branch tested", thisBranch)
+        ),
+        state.genBuildResult(commit, build),
+        state.genTestResult(commit, build),
+        p(a(href = genCommitUrl(commit.hash),commit.hash[0..11]), " by ",
+          a(href=genUserUrl(commit.username), commit.username)
+         ),
+        p(class = "commitMsg", commit.commitMsg),
+        p($(commit.date))
+      )
+      htmlHash[build.platform][thisBranch] = thisHtml
+
   result = ""
-  const 
-    downloadSpan = "<span class=\"download\"></span>"
-    docSpan      = "<span class=\"book\"></span>"
-  var i = 0
-  var cSrcs = False
-  
-  for p in items(platforms):
-    for c, pls in items(entries):
-      if p in pls:
-        var platform = pls[p]
-        if platform.buildResult == bSuccess:
-          var url = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
-                            [c.hash[0..11], platform.platform])
-          var class = ""
-          if i == 0: class = "left button"
-          else: class = "middle button"
-          
-          result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
-                     [url, class, downloadSpan,
-                      platform.platform & "-" & c.hash[0..11]])
-                      
-          if platform.csources and not cSrcs:
-            var cSrcUrl = joinUrl(websiteUrl,
-                                  "commits/$2/nimrod_$1_csources.zip" %
-                                  [c.hash[0..11], platform.platform])
-            result.add("<a href=\"$1\" class=\"$2\">$3$4</a>" %
-                       [cSrcUrl, "middle button", downloadSpan,
-                        "csources-" & c.hash[0..11]])
-          break
-        inc(i)
-  
-  result.add("<a href=\"$1\" class=\"$2\">$3Documentation</a>" %
-             [joinUrl(websiteURL, "docs/lib.html"), "right active button",
-              docSpan])
-"""
-
+  let imgProgress = "<img alt=\"Busy\" src=\"$#\" style=\"float:right\"/>" %
+        [state.req.makeUri("images/progress.gif", absolute = false)]
+  for key, value in htmlHash:
+    var branches = ""
+    for branch, h in value:
+      branches.add(h)
+    
+    var builderModule: TModule
+    var builderStatus = ""
+    var platfClass = ""
+    if findBuilderModule(state, key, builderModule):
+      builderStatus = htmlgen.`div`(class = "buildInfo",
+          (if state.platforms[key].status.isInProgress:
+             imgProgress
+           else: ""),
+          p(state.platforms[key].hash[0..11]),
+          p($state.platforms[key].status),
+          p($(int(builderModule.ping / 1000.0)) & "ms")
+        )
+      if state.platforms[key].status.isInProgress:
+        platfClass = "platfProgress"
+    else:
+      builderStatus = htmlgen.`div`(class = "buildInfo",
+        p("Builder not connected."))
+    
+    
+      
+    
+    
+    result.add(htmlgen.`div`(class="platfBuildResult " & platfClass,
+          htmlgen.`div`(class="header", span(key)),
+          branches,
+          htmlgen.`div`(class="header", span("Builder status")),
+          builderStatus))
+      
 include "index.html"
-# SCGI
-
-proc safeSend(client: TSocket, data: string) =
-  try:
-    client.send(data)
-  except EOS:
-    echo("[Warning] Got error from send(): ", OSErrorMsg())
-
-proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, state: PState) =
-  echo(headers["HTTP_USER_AGENT"])
-  echo(headers)
-  if headers["REQUEST_METHOD"] == "GET":
-    var hostname = ""
-    try:
-      hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
-    except EOS:
-      hostname = getCurrentExceptionMsg()
-    echo("Got website request from: ", hostname)
-    var html = state.genHtml()
-    client.safeSend("Status: 200 OK\c\LContent-Type: text/html\r\L\r\L")
-    client.safeSend(html & "\c\L")
-    client.close()
-  else:
-    client.safeSend("Status: 405 Method Not Allowed\c\L\c\L")
-    client.close()
+# Jester
 
 proc cleanup(state: PState) =
   echo("^C detected. Cleaning up...")
@@ -790,7 +845,7 @@ proc cleanup(state: PState) =
     # TODO: Send something to the modules to warn them?
     m.sock.close()
   
-  state.sock.close()
+  jester.close()
 
 proc handleAccept(s: PAsyncSocket, state: PState) =
   # Connection from a module
@@ -809,19 +864,18 @@ when isMainModule:
   echo("Started website: built at ", CompileDate, " ", CompileTime)
 
   var state = website.open(configPath)
-  #proc main() =
+  
+  get "/":
+    state.req = request
+    let html = state.genHtml()
+    resp html
+  
+  
   while True:
-    try:
-      doAssert state.dispatcher.poll()
-    except EScgi:
-      echo("[Scgi] Got erronous message from http server.")
+    doAssert state.dispatcher.poll()
     
     state.handlePings()
     
     state.database.keepAlive()
   
-#  try:
-#    main()
-#  except EControlC:
-#    cleanup(state)
 

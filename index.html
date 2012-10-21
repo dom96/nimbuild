@@ -1,18 +1,12 @@
 #! stdtmpl | standard
-#proc genCommitUrl(hash: string): string =
-#  return joinUrl("https://github.com/Araq/Nimrod/commit/", hash)
-#end proc
-#proc genUserUrl(user: string): string = 
-#  return joinUrl("https://github.com/", user)
-#end proc
 #proc genHtml(state: PState): string =
 #  result = ""
 <!doctype html>
 <html lang="en">
 <head>
   <title>NimBuild</title>
-	<link rel="stylesheet" href="${genCssPath(state)}static/css/boilerplate.css">
-	<link rel="stylesheet" href="${genCssPath(state)}static/css/style.css">
+	<link rel="stylesheet" href="${state.req.makeUri("css/boilerplate.css", absolute = false)}">
+	<link rel="stylesheet" href="${state.req.makeUri("css/style.css", absolute = false)}">
 </head>
 <body>
   #var platforms: seq[string] = @[] # Every platform, from every commit.
@@ -26,33 +20,9 @@
   <!-- Output information from database -->
   ${genDownloadTable(entries, platforms)}
   #if platforms.len() > 0:
-    <table>
-      <tr>
-        <th>commit</th>
-        #for p in items(platforms):
-          <th>${p}</th>
-        #end for
-        <th>author</td>
-        <th>date</th>
-        <th>message</th>
-      </tr>
-      #for c, pls in items(entries):
-        <tr>
-          <td><a href="${genCommitUrl(c.hash)}">${c.hash[0..11]}</a></td>
-        #for p in items(platforms):
-          <td>
-          #if p in pls:
-            ${genPlatformResult(c, pls[p],state.platforms, genCssPath(state))}
-          #end if
-          </td>
-        #end for
-          <td><a href="${genUserUrl(c.username)}">${c.username}</td>
-          <td>${c.date}</td>
-          <td>${c.commitMsg[0..60]}</td>
-        
-        </tr>
-      #end for
-    </table>
+    <div id="resultsWrapper">
+      ${genBuildResults(state, platforms, entries)}
+    </div>
   #else: 
     <p>No commits found</p>
   #end if

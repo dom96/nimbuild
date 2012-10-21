@@ -42,12 +42,21 @@ This will be called ``commits``. Each commit hash will be LPUSH-ed onto this lis
 ### Keys
 
 Information about each commit will be saved in a hash by the name of ``commit_hash``.
-Each field of that hash will provide information such as whether the build failed/succeeded etc.
-Each field of this hash will also start with the platform name, for example ``linux-x86``. The platform and hash will be separated by a ``:``.
-For example:
+The fields will be:
+  * commitMsg
+  * date
+  * username
+  * branch
 
-  linux-x86:12345678
-
-
-
+Specific information about a build can be retrieved by accessing ``platform:commit_hash``, where ``platform`` can be for example "linux-x86".
+The fields that these will contain will be:
+  * buildResult -> db.TBuildResult ( bUnknown, bFail, bSuccess )
+  * testResult  -> db.TTestResult  ( tUnknown, tFail, tSuccess )
+  * total       -> total tests
+  * passed      -> passed tests
+  * skipped     -> skipped tests
+  * failed      -> failed tests
+  * csources    -> whether the csources have been built for this platform/commit combination ("t" or "f" (?))
+  * timeBuild   -> Time taken to build TODO
+  * timeTest    -> Time taken to test
 
