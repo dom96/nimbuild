@@ -1,0 +1,61 @@
+
+body {
+  background-color: #2d2d2d;
+  color: #ffffff;
+  font-size: 12pt;
+}
+
+table {
+  margin-top: 15pt;
+
+}
+
+table td, table th {
+  padding: 0.3em 0.4em;
+}
+
+td.nick {
+  border-left: 1px solid #CC880A;
+  border-right: 1px solid #CC880A;
+  text-align: right;
+}
+
+tr.join td.msg, tr.join td.nick {
+  color: #33DB09;
+}
+
+tr.quit td.msg, tr.quit td.nick {
+  color: #DB2109;
+}
+
+tr.nick td.msg, tr.nick td.nick {
+  color: #098BDB;
+}
+
+tr.part td.msg, tr.part td.nick {
+  color: #DB9909;
+}
+
+tr.action td.msg, tr.action td.nick {
+  color: #C609DB;
+}
+
+a:link {
+  color: #F2A20C;
+
+}
+
+a:hover {
+  color: #CC880A;
+}
+
+#controls {
+  font-size: 16pt;
+  text-align: center;
+}
+
+hr {
+  background-color: #CC880A;
+  border:0;
+  height: 2px;
+}
