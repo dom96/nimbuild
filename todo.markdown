@@ -14,4 +14,9 @@
     if the file edited is a test, the test should be ran
     if the file edited is a module in the stdlib it should just be compiled
     * This should then be reported to github...
-  
+
+* Nimbuild should be smart, as described above, this should be replicated to
+  all pushes. Single file change: build only that file, compiler changes do whole bootstrap + test suite.
+  etc.
+  * If the newest build only built one file, the website should show the last known test results (perhaps with a warning).
+    * DB needs to know about this.

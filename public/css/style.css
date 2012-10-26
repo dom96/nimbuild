@@ -200,7 +200,7 @@ div.platfBuildResult {
   border-radius: 2px 0px 0px 2px;
   float: left;
   margin-right: 6pt;
-  margin-bottom: 2pt;
+  margin-bottom: 6pt;
   border-right: 2px solid #1d1d1d;
 }
 
@@ -246,7 +246,7 @@ div.platfProgress {
 }
 
 div.platfFailure {
-  border-left: 7px solid #E80C0C;
+  border-left: 7px solid #B50707;
 }
 
 div.indivSuccess {
@@ -258,7 +258,7 @@ div.indivWarning {
 }
 
 div.indivFailure {
-  border-top: 3px solid #E80C0C;
+  border-top: 3px solid #B50707;
 }
 
 div.indivUnknown {
@@ -293,7 +293,7 @@ div.platfBuildResult .lastResults .branch span {
 }
 
 div.platfBuildResult .lastResults .master span {
-  background-color: #BF0000;
+  background-color: #21A607;
 }
 
 div.platfBuildResult .buildInfo {

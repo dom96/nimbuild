@@ -168,7 +168,4 @@ proc contains*(p: seq[TPlatform], s: string): bool =
   for i in items(p):
     if i.platform == s:
       return True
-    
-    
-
 

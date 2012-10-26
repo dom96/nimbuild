@@ -769,26 +769,13 @@ proc genCommitUrl(hash: string): string =
 proc genUserUrl(user: string): string = 
   return joinUrl("https://github.com/", user)
 
-proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): string =
-  # Platform name -> [branch, html generated]
-  var htmlHash = initTable[string, PStringTable]()
-  for entry in items(entr):
-    let (commit, builds) = (entry.c, entry.p)
-    for build in builds:
-      if isBuilding(state.platforms, build.platform, commit):
-        continue # If the builder is currently building it, don't show it here.
-      if not htmlHash.hasKey(build.platform):
-        htmlHash[build.platform] = newStringTable(modeCaseSensitive)
-      let thisBranch = (if isNil(commit.branch): "master" else: commit.branch)
-      assert thisBranch != ""
-      
-      if htmlHash[build.platform].hasKey(thisBranch):
-        # HTML for this branch has already been generated.
-        continue
-      
-      var thisHtml = htmlgen.`div`(class = "lastResults",
-        htmlgen.`div`(class = "branch " & (if thisBranch == "master": "master" else: ""),
-          span(title="Branch tested", thisBranch)
+proc genSpecificBranchHTML(state: PState, branch: string,
+    info: tuple[c: TCommit, buildInfo: TPlatform]): string =
+  let (commit, build) = (info.c, info.buildInfo)
+  result = 
+    htmlgen.`div`(class = "lastResults",
+        htmlgen.`div`(class = "branch " & (if branch == "master": "master" else: ""),
+          span(title="Branch tested", branch)
         ),
         state.genBuildResult(commit, build),
         state.genTestResult(commit, build),
@@ -798,43 +785,100 @@ proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): 
         p(class = "commitMsg", commit.commitMsg),
         p($(commit.date))
       )
-      htmlHash[build.platform][thisBranch] = thisHtml
 
-  result = ""
+proc genSpecificBuilderHTML(state: PState,
+    platfName: string): tuple[inProgress: bool, html: string] =
+  result = (false, "")
   let imgProgress = "<img alt=\"Busy\" src=\"$#\" style=\"float:right\"/>" %
-        [state.req.makeUri("images/progress.gif", absolute = false)]
-  for key, value in htmlHash:
-    var branches = ""
-    for branch, h in value:
-      branches.add(h)
-    
-    var builderModule: TModule
-    var builderStatus = ""
-    var platfClass = ""
-    if findBuilderModule(state, key, builderModule):
-      builderStatus = htmlgen.`div`(class = "buildInfo",
-          (if state.platforms[key].status.isInProgress:
-             imgProgress
-           else: ""),
-          p(state.platforms[key].hash[0..11]),
-          p($state.platforms[key].status),
-          p($(int(builderModule.ping / 1000.0)) & "ms")
-        )
-      if state.platforms[key].status.isInProgress:
-        platfClass = "platfProgress"
-    else:
-      builderStatus = htmlgen.`div`(class = "buildInfo",
-        p("Builder not connected."))
-    
-    
-      
-    
-    
-    result.add(htmlgen.`div`(class="platfBuildResult " & platfClass,
-          htmlgen.`div`(class="header", span(key)),
+      [state.req.makeUri("images/progress.gif", absolute = false)]
+  var builderModule: TModule
+  if findBuilderModule(state, platfName, builderModule):
+    result.html = htmlgen.`div`(class = "buildInfo",
+        (if state.platforms[platfName].status.isInProgress:
+           imgProgress
+         else: ""),
+        p(state.platforms[platfName].hash[0..11]),
+        p($state.platforms[platfName].status),
+        p($(int(builderModule.ping / 1000.0)) & "ms")
+      )
+    result.inProgress =  state.platforms[platfName].status.isInProgress
+  else:
+    result.html = htmlgen.`div`(class = "buildInfo",
+      p("Builder not connected."))
+
+proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): string =
+  # Platform name -> [branch, html generated]
+  var platformBuilds = initTable[
+          string, 
+          TTable[string, tuple[c: TCommit, buildInfo: TPlatform]]]()
+
+  for entry in items(entr):
+    let (commit, builds) = (entry.c, entry.p)
+    for build in builds:
+      if isBuilding(state.platforms, build.platform, commit):
+        continue # If the builder is currently building it, don't show it here.
+      if build.buildResult == bUnknown:
+        continue # No point in showing an unknown for both build&test result.
+        # So skip it.
+      if not platformBuilds.hasKey(build.platform):
+        platformBuilds[build.platform] = initTable[
+            string,
+            tuple[c: TCommit, buildInfo: TPlatform]]()
+      let thisBranch = (if isNil(commit.branch): "master" else: commit.branch)
+      assert thisBranch != ""
+      if platformBuilds[build.platform].hasKey(thisBranch):
+        # Already got the latest commit for this branch
+        continue
+      platformBuilds.mget(build.platform)[thisBranch] = (c: commit, buildInfo: build)
+
+  # platfClass =
+  #   If build in progress: blue (Progress)
+  #   If master branch failed: red (fail)
+  #   If master branch tests not 100%: orange
+  #   If master branch fully successful: green.
+  
+  proc genPlatfBuildRes(state: PState, class, name, 
+      branches, builderStatus: string): string =
+    result = htmlgen.`div`(class="platfBuildResult " & class,
+          htmlgen.`div`(class="header", span(name)),
           branches,
           htmlgen.`div`(class="header", span("Builder status")),
-          builderStatus))
+          builderStatus)
+  
+  result = ""
+  for platfName in platforms:
+    if not platformBuilds.hasKey(platfName):
+      let (inProgress, html) = genSpecificBuilderHTML(state, platfName)
+      if inProgress:
+        result.add genPlatfBuildRes(state, "platfProgress", platfName, "", html)
+        continue
+      else:
+        continue # No commits were built for this, and nothing is building.
+  
+    let value = platformBuilds[platfName]
+    var branches = ""
+    if value.hasKey("master"):
+      branches.add(genSpecificBranchHTML(state, "master", value["master"]))
+    for branch, info in value:
+      if branch == "master": continue
+      branches.add(genSpecificBranchHTML(state, branch, info))
+    
+    let (inProgress, builderHtml) = genSpecificBuilderHTML(state, platfName)
+    var platfClass = "platfWarning"
+    if inProgress: platfClass = "platfProgress"
+    if value.hasKey("master"):
+      if value["master"].buildInfo.buildResult == bFail or 
+          value["master"].buildInfo.testResult == tFail:
+        platfClass = "platfFailure"
+      elif value["master"].buildInfo.testResult == tSuccess and
+          value["master"].buildInfo.failed == 0:
+        platfClass = "platfSuccess"
+      else:
+        platfClass = "platfWarning"
+    else:
+      platfClass = "platfWarning" # Just to be explicit.
+    
+    result.add genPlatfBuildRes(state, platfClass, platfName, branches, builderHtml)
       
 include "index.html"
 # Jester
