@@ -11,7 +11,7 @@ type
     status*: TStatusEnum
     desc*: string
     hash*: string
-    
+  
 proc initStatus*(): TStatus =
   result.status = sUnknown
   result.desc = ""

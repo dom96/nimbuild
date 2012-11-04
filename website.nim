@@ -251,7 +251,8 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
   if json.existsKey("status"):
-    # { "status": -1, desc: "...", platform: "...", hash: "123456" }
+    # { "status": -1, desc: "...", platform: "...", hash: "123456",
+    #   "" }
     assert(json.existsKey("hash"))
     var hash = json["hash"].str
 
