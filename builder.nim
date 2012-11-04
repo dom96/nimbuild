@@ -15,7 +15,6 @@ found at http://github.com/Araq/Nimrod
 
 type
   TJob = object
-    status: TStatus ## Status of this job (Build)
     payload: PJsonNode
     p: PProcess ## Current process that is running.
     cmd: string
@@ -44,6 +43,7 @@ type
   TState = object of TObject
     dispatcher: PDispatcher
     sock: PAsyncSocket
+    building: bool
     buildJob: TJob ## Current build
     skipCSource: bool ## Skip the process of building csources
     logFile: TFile
@@ -59,13 +59,13 @@ type
     cfg: TCfg
 
   TBuildProgressType = enum
-    ProcessStart, ProcessExit, HubMsg
+    ProcessStart, ProcessExit, HubMsg, BuildEnd
   
   TBuildProgress = object ## This object gets sent to the main thread, by the builder thread.
     case kind: TBuildProgressType
     of ProcessStart:
       p: PProcess
-    of ProcessExit: nil
+    of ProcessExit, BuildEnd: nil
     of HubMsg:
       msg: string
 
@@ -164,7 +164,6 @@ proc defaultState(): PState =
   result.cfg.csourceExtraBuildArgs = ""
 
 proc initJob(): TJob =
-  result.status = initStatus()
   result.payload = nil
 
 # Build of Nimrod/tests/docs gen
@@ -175,19 +174,19 @@ template sendHubMsg(m: string): stmt =
   bp.msg = m
   hubChan.send(bp)
 
-proc hubSendProcessStart(process: PProcess, cmd: string) =
+proc hubSendProcessStart(process: PProcess, cmd, args: string) =
   var bp: TBuildProgress
   bp.kind = ProcessStart
   bp.p = process
   hubChan.send(bp)
-  var obj = %{"status": newJNull(),
-              "desc": %(cmd & " started."),
-              "eventType": %"ProcessStart"}
+  var obj = %{"desc": %("\"" & cmd & " " & args & "\" started."),
+              "eventType": %(int(bProcessStart)),
+              "cmd": %cmd,
+              "args": %args}
   sendHubMsg($obj & "\c\L")
 
 proc hubSendProcessLine(line: string) =
-  var obj = %{"status": newJNull(),
-              "eventType": %"ProcessLine",
+  var obj = %{"eventType": %(int(bProcessLine)),
               "line": %line}
   sendHubMsg($obj & "\c\L")
 
@@ -195,20 +194,18 @@ proc hubSendProcessExit(exitCode: int) =
   var bp: TBuildProgress
   bp.kind = ProcessExit
   hubChan.send(bp)
-  var obj = %{"status": newJNull(),
-              "eventType": %"ProcessExit",
+  var obj = %{"eventType": %(int(bProcessExit)),
               "exitCode": %exitCode}
   sendHubMsg($obj & "\c\L")
 
 proc hubSendFTPUploadSpeed(speed: float) =
-  var obj = %{"status": newJNull(),
-              "desc": %("FTP Upload at " & formatFloat(speed) & "KB/s"),
-              "eventType": %"FTPUploadSpeed",
+  var obj = %{"desc": %("FTP Upload at " & formatFloat(speed) & "KB/s"),
+              "eventType": %(int(bFTPUploadSpeed)),
               "speed": %speed}
   sendHubMsg($obj & "\c\L")
 
-proc hubSendStatusUpdate(status: TStatusEnum, hash: string) =
-  var obj = %{"status": %(int(status)),
+proc hubSendJobUpdate(job: TBuilderJob, hash: string) =
+  var obj = %{"job": %(int(job)),
               "hash": %(hash)}
   sendHubMsg($obj & "\c\L")
 
@@ -228,6 +225,11 @@ proc hubSendBuildTestSuccess(total, passed, skipped, failed: biggestInt) =
               "skipped": %(skipped),
               "failed": %(failed)}
   sendHubMsg($obj & "\c\L")
+
+proc hubSendBuildEnd() =
+  var bp: TBuildProgress
+  bp.kind = BuildEnd
+  hubChan.send(bp)
 
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
@@ -253,6 +255,10 @@ proc dMoveDir(s: string, s1: string) =
 
 proc dRemoveDir(s: string) =
   echo("[INFO] Removing directory ", s)
+  removeDir(s)
+
+proc dRemoveFile(s: string) =
+  echo("[INFO] Removing file ", s)
   removeDir(s)
 
 proc copyForArchive(nimLoc, dest: string) =
@@ -287,15 +293,17 @@ proc tallyTestResults(path: string):
   return (total, passed, skipped, total - (passed + skipped))
 
 proc fileInModified(json: PJsonNode, file: string): bool =
-  for commit in items(json["commits"].elems):
-    for f in items(commit["modified"].elems):
-      if f.str == file: return true
+  if json.existsKey("commits"):
+    for commit in items(json["commits"].elems):
+      for f in items(commit["modified"].elems):
+        if f.str == file: return true
 
 template buildTmpl(body: stmt): stmt =
   try:
     body
   except EBuildEnd:
     hubSendBuildFail(getCurrentExceptionMsg())
+  hubSendBuildEnd()
 
 proc hasBuildTerminated(): bool =
   ## Checks whether the main thread asked for the build to be terminated.
@@ -307,40 +315,44 @@ proc hasBuildTerminated(): bool =
 
 proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
   ## Returns ``true`` if process finished successfully. Otherwise ``false``.
+  result = true
   var cmd = ""
   if isAbsolute(execFile):
     cmd = execFile.changeFileExt(ExeExt)
   else:
     cmd = workDir / execFile.changeFileExt(ExeExt)
   var process = startProcess(cmd, workDir, args)
-  hubSendProcessStart(process, execFile)
+  hubSendProcessStart(process, execFile.extractFilename, join(args, " "))
   var pStdout = process.outputStream
-  proc hasProcessTerminated(process: PProcess): bool =
+  proc hasProcessTerminated(process: PProcess, exitCode: var int): bool =
     result = false
-    let exitCode = process.peekExitCode()
+    exitCode = process.peekExitCode()
     if exitCode != -1:
-      echo("Process exited with ", exitCode)
       hubSendProcessExit(exitCode)
       return true
   var line = ""
+  var exitCode = -1
   while true:
     line = ""
     if pStdout.readLine(line) and line != "":
       hubSendProcessLine(line)
-    if hasProcessTerminated(process):
+    if hasProcessTerminated(process, exitCode):
       break
+  result = exitCode == QuitSuccess 
+  echo(execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
   pStdout.close()
   process.close()
   
 proc run(workDir: string, exec: string, args: varargs[string]) =
   if not runProcess(workDir, exec, args):
-    raise newException(EBuildEnd, exec & " failed.")
+    raise newException(EBuildEnd,
+        "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed.")
   if hasBuildTerminated():
     raise newException(EBuildEnd, "Bootstrap aborted.")
 
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
-  let branch = payload["payload"]["ref"].str[11 .. -1]
+  let branch = payload["ref"].str[11 .. -1]
 
   run(nimLoc, findExe("git"), "checkout", ".")
   run(nimLoc, findExe("git"), "checkout", branch)
@@ -350,6 +362,15 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   ## Set of steps to bootstrap Nimrod. In debug and release mode.
   ## Does not perform any git actions!
+
+  # Do compile koch here if nimrod binary exists.
+  # This is so that 'koch clean' can be used.
+  # if the nimrod binary does not exist then it's quite unlikely that
+  # koch won't be compiled /and/ we need to run koch clean.
+  if ((not existsFile(nimLoc / "koch")) or 
+      fileInModified(payload, "koch.nim")) and
+      existsFile(nimLoc / "bin" / "nimrod"):
+    run(nimLoc, "bin" / "nimrod", "c", "koch.nim")
 
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
@@ -398,11 +419,14 @@ proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
   var zipFinalPath = addFileExt(makeZipPath(platform, commitHash), "zip")
   # Remove the pre-zipped folder with the binaries.
   dRemoveDir(zipPath)
+  # Move the .zip file to the website
   when defined(windows):
     dMoveFile(rootZipLoc / zipFile.extractFilename,
               websiteLoc / "commits" / zipFinalPath)
   else:
     dMoveFile(rootZipLoc / zipFile, websiteLoc / "commits" / zipFinalPath)
+  # Remove the original .zip file
+  dRemoveFile(rootZipLoc / zipFile)
   
   result = websiteLoc / "commits" / zipFinalPath
 
@@ -436,7 +460,7 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   result = websiteLoc / "commits" / commitPath / "testresults.html"
   run(nimLoc, "koch", "tests")
   # Copy the testresults.html file.
-  #dCreateDir(state.websiteLoc / "commits" / commitPath)
+  dCreateDir(websiteLoc / "commits" / commitPath)
   setFilePermissions(websiteLoc / "commits" / commitPath,
                      webFP)
   dCopyFile(nimLoc / "testresults.html", result)
@@ -447,7 +471,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     let cfg = info.cfg
     let commitHash = info.payload["after"].str
     let commitPath = makeCommitPath(cfg.platform, commitHash)
-    hubSendStatusUpdate(sBuildInProgress, commitHash)
+    hubSendJobUpdate(jBuild, commitHash)
     
     # GIT
     setGIT(info.payload, cfg.nimLoc)
@@ -467,7 +491,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
                  buildZipFilePath.extractFilename)
 
     hubSendBuildSuccess()
-    hubSendStatusUpdate(sTestInProgress, commitHash)
+    hubSendJobUpdate(jTest, commitHash)
     var testResultsPath = nimTest(commitPath, cfg.nimLoc, cfg.websiteLoc)
     
     # --- Upload testresults.html ---
@@ -482,7 +506,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     # --- Start of doc gen ---
     # Create the upload directory and the docs directory on the website
     if cfg.docgen:
-      hubSendStatusUpdate(sDocgenInProgress, commitHash)
+      hubSendJobUpdate(jDocGen, commitHash)
       dCreateDir(cfg.nimLoc / "web" / "upload")
       dCreateDir(cfg.websiteLoc / "docs")
       run(cfg.nimLoc, "koch", "web")
@@ -495,7 +519,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     if cfg.csourceGen:
       # Rename the build directory so that the csources from the git repo aren't
       # overwritten
-      hubSendStatusUpdate(sCSrcGenInProgress, commitHash)
+      hubSendJobUpdate(jCSrcGen, commitHash)
       dMoveDir(cfg.nimLoc / "build", cfg.nimLoc / "build_old")
       dCreateDir(cfg.nimLoc / "build")
 
@@ -532,17 +556,17 @@ proc stopBuild(state: PState) =
   ## Terminates a build
   # TODO: Send a message to the website, make it record it to the database
   # as "terminated".
-  
-  # Send the termination command first.
-  threadCommandChan.send(ThreadTerminate)
-  
-  # Simply terminate the currently running process, should hopefully work.
-  if state.buildJob.p != nil:
-    echo("Terminating build")
-    state.buildJob.p.terminate()
+  if state.building:
+    # Send the termination command first.
+    threadCommandChan.send(ThreadTerminate)
+    
+    # Simply terminate the currently running process, should hopefully work.
+    if state.buildJob.p != nil:
+      echo("Terminating build")
+      state.buildJob.p.terminate()
 
-  # Block until thread exits.
-  joinThreads(state.buildJob.thread)
+    # Block until thread exits.
+    joinThreads(state.buildJob.thread)
 
 proc beginBuild(state: PState) =
   ## This procedure starts the process of building nimrod. All it does
@@ -559,6 +583,7 @@ proc beginBuild(state: PState) =
   buildData.cfg = state.cfg
 
   # Create the thread.
+  state.building = true
   createThread(state.buildJob.thread, bootstrapTmpl, BuildData)
 
 proc writeLogs(logFile: TFile, s: string) =
@@ -581,6 +606,8 @@ proc pollBuild(state: PState) =
         state.buildJob.p = nil
       of HubMsg:
         state.sock.send(msg.msg)
+      of BuildEnd:
+        state.building = false
 
 # Communication
 proc parseReply(line: string, expect: string): Bool =
@@ -650,13 +677,12 @@ proc open(configPath: string): PState =
   # Open log file
   cres.logFile = open(cres.cfg.logLoc, fmAppend)
   
-  # Init status
+  # Init job
   cres.buildJob = initJob()
 
   result = cres
 
 proc initJob(payload: PJsonNode): TJob =
-  result.status = initStatus()
   result.payload = payload
 
 proc parseMessage(state: PState, line: string) =
@@ -770,10 +796,15 @@ proc parseArgs(): string =
   if result == "":
     showHelp()
 
+proc createFolders(state: PState) =
+  if not existsDir(state.cfg.websiteLoc / "commits" / state.cfg.platform):
+    dCreateDir(state.cfg.websiteLoc / "commits" / state.cfg.platform)
+
 when isMainModule:
   echo("Started builder: built at ", CompileDate, " ", CompileTime)
   # TODO: Check for dependencies: unzip, zip, etc...
   var state = builder.open(parseArgs())
+  createFolders(state)
   while True:
     discard state.dispatcher.poll()
     

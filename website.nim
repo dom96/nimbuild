@@ -10,8 +10,6 @@ const
   websiteURL = "http://build.nimrod-code.org"
 
 type
-  HPlatformStatus = seq[tuple[platform: string, status: TStatus]]
-  
   PState = ref TState
   TState = object of TObject
     dispatcher: PDispatcher
@@ -19,7 +17,8 @@ type
     req: TRequest
     modules: seq[TModule]
     database: TDb
-    platforms: HPlatformStatus
+    platforms: TTable[string, TStatus]
+    buildQueue: TTable[string, PJsonNode]
     password: string ## The password that foreign modules need to be accepted.
     bindAddr: string
     bindPort: int
@@ -91,7 +90,7 @@ proc open(configPath: string): PState =
   cres.sock.listen()
   cres.sock.handleAccept = proc (s: PAsyncSocket) = handleAccept(s, cres)
   cres.modules = @[]
-  cres.platforms = @[]
+  cres.platforms = initTable[string, TStatus]()
   
   cres.dispatcher.register(cres.sock)
   
@@ -112,12 +111,6 @@ proc contains(modules: seq[TModule], name: string): bool =
     if i.name == name: return true
   
   return false
-
-proc contains(platforms: HPlatformStatus,
-              p: string): bool =
-  for platform, s in items(platforms):
-    if platform == p:
-      return True
 
 proc handleModuleMsg(s: PAsyncSocket, arg: PObject)
 proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
@@ -169,8 +162,8 @@ proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   # Only add this module platform to platforms if it's a `builder`, and
   # if platform doesn't already exist.
   if m.name == "builder":
-    if m.platform notin state.platforms:
-      state.platforms.add((m.platform, initStatus()))
+    if not state.platforms.hasKey(m.platform):
+      state.platforms[m.platform] = initStatus()
     else:
       echo("Platform(", m.platform, ") already exists.")
       return False
@@ -178,31 +171,6 @@ proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   m.status = MSConnected
   
   return True
-
-proc `[]`*(ps: HPlatformStatus,
-           platform: string): TStatus =
-  assert(ps.len > 0)
-  for p, s in items(ps):
-    if p == platform:
-      return s
-  raise newException(EInvalidValue, platform & " is not a valid platform.")
-
-proc `[]=`*(ps: var HPlatformStatus,
-            platform: string, status: TStatus) =
-  var index = -1
-  var count = 0
-  for p, s in items(ps):
-    if p == platform:
-      index = count
-      break
-    inc(count)
-
-  if index != -1:
-    ps.del(index)
-  else:
-    raise newException(EInvalidValue, platform & " is not a valid platform.")
-  
-  ps.add((platform, status))
 
 proc uniqueMName(module: TModule): string =
   result = ""
@@ -227,22 +195,36 @@ proc remove(state: PState, module: TModule) =
 
       # if module is a builder remove it from platforms.
       if m.name == "builder":
-        for p in 0..len(state.platforms)-1:
-          if state.platforms[p].platform == m.platform:
-            state.platforms.delete(p)
-            break
+        state.platforms.del(m.platform)
 
       state.modules.delete(i)
       return
 
-proc setStatus(state: PState, p: string, status: TStatusEnum,
-               desc, hash: string) =
+proc setJob(state: PState, p: string, job: TBuilderJob, hash: string) =
   var s = state.platforms[p]
-  s.status = status
-  s.desc = desc
+  s.isInProgress = true
+  s.desc = ""
   s.hash = hash
-  echo("setStatus -- ", TStatusEnum(status), " -- ", p)
+  s.jobs[job] = jInProgress
   state.platforms[p] = s
+
+proc setResult(state: PState, p: string, res: TResult, detail: string) =
+  var s = state.platforms[p]
+  let job = jobInProgress(s)
+  s.isInProgress = false
+  s.jobs[job] = if res == Success: jSuccess else: jFail
+  s.desc = detail
+  s.hash = ""
+  state.platforms[p] = s
+
+proc setDesc(state: PState, p: string, desc: string) =
+  var s = state.platforms[p]
+  assert s.isInProgress
+  s.desc = desc
+  state.platforms[p] = s
+
+proc writeBuildSpecificLogs(state: PState, p: string, line: string) =
+  # ..
 
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
@@ -250,78 +232,90 @@ proc setStatus(state: PState, p: string, status: TStatusEnum,
 proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
-  if json.existsKey("status"):
-    # { "status": -1, desc: "...", platform: "...", hash: "123456",
-    #   "" }
-    assert(json.existsKey("hash"))
-    var hash = json["hash"].str
-
-    # TODO: Clean this up?
-    case TStatusEnum(json["status"].num)
-    of sBuildFailure:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sBuildFailure, json["desc"].str, hash)
-      state.database.updateProperty(hash, m.platform, "buildResult",
-                                    $int(bFail))
-      state.database.updateProperty(hash, m.platform, "failReason",
-                                    json["desc"].str)
-      # This implies that the tests failed too. If we leave this as unknown,
-      # the website will show the 'progress.gif' image, which we don't want.
-      state.database.updateProperty(hash, m.platform,
-          "testResult", $int(tFail))
-    of sBuildInProgress:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sBuildInProgress, json["desc"].str, hash)
-    of sBuildSuccess:
-      state.setStatus(m.platform, sBuildSuccess, "", hash)
-      state.database.updateProperty(hash, m.platform, "buildResult",
-                                    $int(bSuccess))
-    of sTestFailure:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sTestFailure, json["desc"].str, hash)
-      
-      state.database.updateProperty(hash, m.platform,
-          "testResult", $int(tFail))
-      state.database.updateProperty(hash, m.platform,
-          "failReason", state.platforms[m.platform].desc)
-    of sTestInProgress:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sTestInProgress, json["desc"].str, hash)
-    of sTestSuccess:
-      assert(json.existsKey("total"))
-      assert(json.existsKey("passed"))
-      assert(json.existsKey("skipped"))
-      assert(json.existsKey("failed"))
-      state.setStatus(m.platform, sTestSuccess, "", hash)
-      state.database.updateProperty(hash, m.platform,
-          "testResult", $int(tSuccess))
-      state.database.updateProperty(hash, m.platform,
-          "total", json["total"].str)
-      state.database.updateProperty(hash, m.platform,
-          "passed", json["passed"].str)
-      state.database.updateProperty(hash, m.platform,
-          "skipped", json["skipped"].str)
-      state.database.updateProperty(hash, m.platform,
-          "failed", json["failed"].str)
-    of sDocGenFailure:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sDocGenFailure, json["desc"].str, hash)
-    of sDocGenInProgress:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sDocGenInProgress, json["desc"].str, hash)
-    of sDocGenSuccess:
-      state.setStatus(m.platform, sDocGenSuccess, "", hash)
-    of sCSrcGenFailure:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sCSrcGenFailure, json["desc"].str, hash)
-    of sCSrcGenInProgress:
-      assert(json.existsKey("desc"))
-      state.setStatus(m.platform, sCSrcGenInProgress, json["desc"].str, hash)
-    of sCSrcGenSuccess:
-      state.setStatus(m.platform, sCSrcGenSuccess, "", hash)
-      state.database.updateProperty(hash, m.platform, "csources", "t")
-    of sUnknown:
-      assert(false)
+  if json.existsKey("job"):
+    # { job: TBuilderJob, hash: string }
+    assert json.existsKey("hash")
+    setJob(state, m.platform, TBuilderJob(json["job"].num), json["hash"].str)
+    
+    # TODO: Open log file.
+    
+  elif json.existsKey("result"):
+    let result = TResult(json["result"].num)
+    let platf = state.platforms[m.platform]
+    let currentJob = jobInProgress(platf)
+    case currentJob
+    of jBuild:
+      if result == Success:
+        state.database.updateProperty(platf.hash, m.platform, "buildResult",
+                                      $int(bSuccess))
+      else:
+        assert json.existsKey("detail")
+        state.database.updateProperty(platf.hash, m.platform, "buildResult",
+                                      $int(bFail))
+        state.database.updateProperty(platf.hash, m.platform, "failReason",
+                                      json["detail"].str)
+        # This implies that the tests failed too. If we leave this as unknown,
+        # the website will show the 'progress.gif' image, which we don't want.
+        state.database.updateProperty(platf.hash, m.platform,
+            "testResult", $int(tFail))
+    of jTest:
+      if result == Success:
+        assert(json.existsKey("total"))
+        assert(json.existsKey("passed"))
+        assert(json.existsKey("skipped"))
+        assert(json.existsKey("failed"))
+        state.database.updateProperty(platf.hash, m.platform,
+            "testResult", $int(tSuccess))
+        state.database.updateProperty(platf.hash, m.platform,
+            "total", $json["total"].num)
+        state.database.updateProperty(platf.hash, m.platform,
+            "passed", $json["passed"].num)
+        state.database.updateProperty(platf.hash, m.platform,
+            "skipped", $json["skipped"].num)
+        state.database.updateProperty(platf.hash, m.platform,
+            "failed", $json["failed"].num)
+      else:
+        assert json.existsKey("detail")
+        state.database.updateProperty(platf.hash, m.platform,
+            "testResult", $int(tFail))
+        state.database.updateProperty(platf.hash, m.platform,
+            "failReason", json["detail"].str)
+    of jDocGen:
+      if result == Success:
+        state.database.updateProperty(platf.hash, m.platform, "docs", "t")
+      else:
+        state.database.updateProperty(platf.hash, m.platform, "docs", "f")
+    of jCSrcGen:
+      if result == Success:
+        state.database.updateProperty(platf.hash, m.platform, "csources", "t")
+      else:
+        state.database.updateProperty(platf.hash, m.platform, "csources", "f")
+    if json.existsKey("detail"):
+      setResult(state, m.platform, result, json["detail"].str)
+    else:
+      setResult(state, m.platform, result, "")
+  
+  elif json.existsKey("eventType"):
+    let job = state.platforms[m.platform]
+    assert job.isInProgress
+    if json.existsKey("desc"):
+      setDesc(state, m.platform, json["desc"].str)
+    assert json.existsKey("eventType")
+    case TBuilderEventType(json["eventType"].num)
+    of bProcessStart:
+      assert json.existsKey("cmd")
+      state.platforms.mget(m.platform).cmd = json["cmd"].str
+      state.platforms.mget(m.platform).args = json["args"].str
+      writeBuildSpecificLogs(state, m.platform, json["desc"].str)
+    of bProcessExit:
+      writeBuildSpecificLogs(state, m.platform,
+          job.cmd & " exited with " & $json["exitCode"].num)
+    of bProcessLine:
+      writeBuildSpecificLogs(state, m.platform, job.cmd & "> " & json["line"].str)
+    of bFtpUploadSpeed:
+      state.platforms.mget(m.platform).FTPSpeed = json["speed"].fnum
+  
+    
   elif json.existsKey("payload"):
     # { "payload": { .. } }
     # Check if this is the Nimrod repo.
@@ -369,6 +363,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     if state.database.commitExists(hash, true):
       # You can only rebuild the newest commit. (For now, TODO?)
       var fullHash = state.database.expandHash(hash)
+      let branch = state.database.getBranch(fullHash)
       if state.database.isNewest(hash):
         var success = false
         for module in items(state.modules):
@@ -376,6 +371,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
             var jobj = newJObject()
             jobj["payload"] = newJObject()
             jobj["payload"]["after"] = newJString(fullHash)
+            jobj["payload"]["ref"] = newJString("refs/heads/" & branch)
             jobj["rebuild"] = newJBool(true)
            
             if not state.database.platformExists(fullHash, module.platform):
@@ -396,10 +392,14 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     m.sock.send($reply & "\c\L")
 
   elif json.existsKey("latestCommit"):
-    var commit = state.database.getNewest()
+    let commit = state.database.getNewest()
+    let branch = state.database.getBranch(commit)
     var reply = newJObject()
     reply["payload"] = newJObject()
     reply["payload"]["after"] = newJString(commit)
+    reply["payload"]["ref"] = newJString("refs/heads/" & branch)
+    reply["payload"]["commits"] = newJArray()
+    reply["payload"]["commits"].add(%({"modified": %([%"build/csources.zip"])}))
     reply["rebuild"] = newJBool(true)
     m.sock.send($reply & "\c\L")
     if not state.database.platformExists(commit, m.platform):
@@ -521,12 +521,10 @@ proc getUrl(c: TCommit, p: TPlatform): tuple[weburl, logurl: string] =
   var logurl = joinUrl(weburl, "log.txt")
   return (weburl, logurl)
 
-proc isBuilding(platforms: HPlatformStatus, p: string, c: TCommit): bool =
-  if p in platforms:
-    return platforms[p].hash == c.hash
-  return false
+proc isBuilding(platforms: TTable[string, TStatus], p: string, c: TCommit): bool =
+  return platforms[p].isInProgress and platforms[p].hash == c.hash
 
-proc genPlatformResult(c: TCommit, p: TPlatform, platforms: HPlatformStatus,
+proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStatus],
                        req: TRequest): string =
   result = ""
   case p.buildResult
@@ -722,7 +720,7 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
   
   result = table.toHtml("id=\"downloads\"")
 
-proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
+proc genTopButtons(platforms: TTable[string, TStatus], entries: seq[TEntry]): string =
   # Generate buttons for C sources and docs.
   # Find the latest C sources.
   result = ""
@@ -744,8 +742,8 @@ proc genTopButtons(platforms: HPlatformStatus, entries: seq[TEntry]): string =
         
   # Find out whether latest doc gen succeeded.
   var docgenSuccess = true # By default it succeeded.
-  for p, s in items(platforms):
-    if s.status == sDocGenFailure:
+  for p, s in pairs(platforms):
+    if s.jobs[jDocGen] == jFail:
       docgenSuccess = false
       break
   
@@ -794,15 +792,17 @@ proc genSpecificBuilderHTML(state: PState,
       [state.req.makeUri("images/progress.gif", absolute = false)]
   var builderModule: TModule
   if findBuilderModule(state, platfName, builderModule):
+    let job = state.platforms[platfName]
+    var progressSpecific = ""
+    if job.isInProgress:
+      progressSpecific.add imgProgress
+      progressSpecific.add p(job.hash[0..11])
     result.html = htmlgen.`div`(class = "buildInfo",
-        (if state.platforms[platfName].status.isInProgress:
-           imgProgress
-         else: ""),
-        p(state.platforms[platfName].hash[0..11]),
-        p($state.platforms[platfName].status),
+        progressSpecific,
+        p($job.jobs),
         p($(int(builderModule.ping / 1000.0)) & "ms")
       )
-    result.inProgress =  state.platforms[platfName].status.isInProgress
+    result.inProgress = job.isInProgress
   else:
     result.html = htmlgen.`div`(class = "buildInfo",
       p("Builder not connected."))

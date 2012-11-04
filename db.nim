@@ -26,6 +26,7 @@ type
     failReason*, platform*: string
     total*, passed*, skipped*, failed*: biggestInt
     csources*: bool
+    docs*: bool
 
 const
   listName = "commits"
@@ -113,6 +114,8 @@ proc getCommits*(database: TDb,
           platform.failed = parseBiggestInt(value)
         of "csources":
           platform.csources = if value == "t": true else: false
+        of "docs":
+          platform.docs = if value == "t": true else: false
         else:
           echo("[redis] platf key not found: " & normalize(key))
           assert(false)
@@ -147,6 +150,12 @@ proc isNewest*(database: TDb, commit: string): bool =
 
 proc getNewest*(database: TDb): string =
   return database.r.lIndex("commits", 0)
+
+proc getBranch*(database: TDb, commit: string): string =
+  if database.r.hExists(commit, "branch"):
+    return database.r.hGet(commit, "branch")
+  else:
+    return "master"
 
 proc addPlatform*(database: TDb, commit: string, platform: string) =
   assert database.commitExists(commit)

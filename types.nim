@@ -1,55 +1,87 @@
-import os
+import os, tables, hashes
 # TODO: Rename this module to ``utils``
 type
-  TStatusEnum* = enum
-    sUnknown, sBuildFailure, sBuildInProgress, sBuildSuccess,
-    sTestFailure, sTestInProgress, sTestSuccess, # ORDER MATTERS!
-    sDocGenFailure, sDocGenInProgress, sDocGenSuccess,
-    sCSrcGenFailure, sCSrcGenInProgress, sCSrcGenSuccess
+  TBuilderJob* = enum
+    jBuild, jTest, jDocGen, jCSrcGen
+
+  TProgress* = enum
+    jUnknown, jFail, jInProgress, jSuccess
 
   TStatus* = object
-    status*: TStatusEnum
+    isInProgress*: bool
     desc*: string
     hash*: string
+    jobs*: TTable[TBuilderJob, TProgress]
+    cmd*: string
+    args*: string
+    FTPSpeed*: float
   
+  TBuilderEventType* = enum
+    bProcessStart, bProcessLine, bProcessExit, bFTPUploadSpeed
+
+proc hash*[T: enum](x: T): THash = ord(x)
+
 proc initStatus*(): TStatus =
-  result.status = sUnknown
+  result.isInProgress = false
+  result.jobs = initTable[TBuilderJob, TProgress]()
   result.desc = ""
   result.hash = ""
+  result.cmd = ""
+  result.args = ""
+  result.FTPSpeed = -1.0
 
-proc isInProgress*(status: TStatusEnum): bool =
-  return status in {sBuildInProgress, sTestInProgress, sDocGenInProgress,
-                    sCSrcGenInProgress}
+proc jobInProgress*(s: TStatus): TBuilderJob =
+  assert s.isInProgress
+  for j, p in s.jobs:
+    if p == jInProgress:
+      return j
+  raise newException(EInvalidValue, "No job could be found that is in progress.")
 
-proc `$`*(status: TStatusEnum): string =
-  case status
-  of sBuildFailure:
-    return "build failure"
-  of sBuildInProgress:
-    return "build in progress"
-  of sBuildSuccess:
-    return "build finished"
-  of sTestFailure:
-    return "testing failure"
-  of sTestInProgress:
-    return "testing in progress"
-  of sTestSuccess:
-    return "testing finished"
-  of sDocGenFailure:
-    return "documentation generation failed"
-  of sDocGenInProgress:
-    return "generating documentation"
-  of sDocGenSuccess:
-    return "documentation generation succeeded"
-  of sCSrcGenFailure:
-    return "csource generation failed"
-  of sCSrcGenInProgress:
-    return "csource generation in progress"
-  of sCSrcGenSuccess:
-    return "csource generation succeeded"
-  of sUnknown:
-    return "unknown"
-    
+proc findLatestJob*(s: TStatus, job: var TBuilderJob): bool  =
+  for i in TBuilderJob:
+    if s.jobs[i] == jFail or s.jobs[i] == jSuccess:
+      job = i
+      return true
+
+proc `$`*(s: TStatus): string =
+  if s.isInProgress:
+    let job = jobInProgress(s)
+    case job
+    of jBuild:
+      result = "Bootstrapping"
+    of jTest:
+      result = "Testing"
+    of jDocGen:
+      result = "Generating docs"
+    of jCSrcGen:
+      result = "Generating C Sources"
+  else:
+    var job: TBuilderJob
+    result = "Unknown"
+    if findLatestJob(s, job):
+      case job
+      of jBuild:
+        if s.jobs[job] == jSuccess:
+          result = "Bootstrapped successfully"
+        elif s.jobs[job] == jFail:
+          result = "Bootstrapping failed"
+      of jTest:
+        if s.jobs[job] == jSuccess:
+          result = "Tested successfully"
+        elif s.jobs[job] == jFail:
+          result = "Testing failed"
+      of jDocGen:
+        if s.jobs[job] == jSuccess:
+          result = "Doc generation succeeded"
+        elif s.jobs[job] == jFail:
+          result = "Doc generation failed"
+      of jCSrcGen:
+        if s.jobs[job] == jSuccess:
+          result = "C source generation succeeded"
+        elif s.jobs[job] == jFail:
+          result = "C source generation failed"
+      
+  
 proc makeCommitPath*(platform, hash: string): string =
   return platform / hash.substr(0, 11)  # 11 Chars.
 
