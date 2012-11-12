@@ -10,6 +10,11 @@ const
   websiteURL = "http://build.nimrod-code.org"
 
 type
+  TBQCommit = object
+    hash: string
+    branch: string
+    payload: PJsonNode
+
   PState = ref TState
   TState = object of TObject
     dispatcher: PDispatcher
@@ -18,7 +23,7 @@ type
     modules: seq[TModule]
     database: TDb
     platforms: TTable[string, TStatus]
-    buildQueue: TTable[string, PJsonNode]
+    buildQueue: TTable[string, seq[TBQCommit]] # Platform, (hash, payload)
     password: string ## The password that foreign modules need to be accepted.
     bindAddr: string
     bindPort: int
@@ -91,6 +96,7 @@ proc open(configPath: string): PState =
   cres.sock.handleAccept = proc (s: PAsyncSocket) = handleAccept(s, cres)
   cres.modules = @[]
   cres.platforms = initTable[string, TStatus]()
+  cres.buildQueue = initTable[string, seq[TBQCommit]]()
   
   cres.dispatcher.register(cres.sock)
   
@@ -137,6 +143,7 @@ proc findBuilderModule(state: PState, p: string, module: var TModule): bool =
 
 proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   # { "name": "modulename" }
+  # optional params: settings
   var json: PJsonNode
   try:
     json = parseJson(line)
@@ -226,6 +233,15 @@ proc setDesc(state: PState, p: string, desc: string) =
 proc writeBuildSpecificLogs(state: PState, p: string, line: string) =
   # ..
 
+proc checkBuilderQueue(state: PState, platform: string) =
+  ## Checks builder queue and sends a message to the builder immediatelly.
+  if state.buildQueue.hasKey(platform):
+    let cm = state.buildQueue.mget(platform).pop()
+    let json = %{"payload": cm.payload, "rebuild": %false}
+    var builder: TModule
+    assert findBuilderModule(state, platform, builder)
+    builder.sock.send($json)
+
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
 
@@ -234,6 +250,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
   var m = state.modules[mIndex]
   if json.existsKey("job"):
     # { job: TBuilderJob, hash: string }
+    # Start of a builder job.
     assert json.existsKey("hash")
     setJob(state, m.platform, TBuilderJob(json["job"].num), json["hash"].str)
     
@@ -290,6 +307,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         state.database.updateProperty(platf.hash, m.platform, "csources", "t")
       else:
         state.database.updateProperty(platf.hash, m.platform, "csources", "f")
+    
     if json.existsKey("detail"):
       setResult(state, m.platform, result, json["detail"].str)
     else:
@@ -314,7 +332,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       writeBuildSpecificLogs(state, m.platform, job.cmd & "> " & json["line"].str)
     of bFtpUploadSpeed:
       state.platforms.mget(m.platform).FTPSpeed = json["speed"].fnum
-  
+    of bEnd:
+      # Build ended. Check queue for more builds awaiting.
+      checkBuilderQueue(state, m.platform)
     
   elif json.existsKey("payload"):
     # { "payload": { .. } }
@@ -335,15 +355,33 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         # Send this message to the "builder" modules
         for module in items(state.modules):
           if module.name == "builder":
-            state.database.addPlatform(json["payload"]["after"].str,
-                module.platform)
-           
-            # Add "rebuild" flag.
-            json["rebuild"] = newJBool(false)
+            # Check build queue.
+            var toBuildQueue = false
+            if state.buildQueue.hasKey(module.platform):
+              toBuildQueue = state.buildQueue[module.platform].len > 0
             
-            module.sock.send($json & "\c\L")
-
-                
+            # Check if builder is currently building.
+            if state.platforms[module.platform].isInProgress:
+              toBuildQueue = true
+            
+            if not toBuildQueue:
+              # Send immediatelly.
+              state.database.addPlatform(json["payload"]["after"].str,
+                  module.platform)
+             
+              # Add "rebuild" flag.
+              json["rebuild"] = newJBool(false)
+              
+              module.sock.send($json & "\c\L")
+            else:
+              var cm: TBQCommit
+              cm.hash = json["payload"]["after"].str
+              cm.branch = branch
+              cm.payload = json
+              if not state.buildQueue.hasKey(module.platform):
+                state.buildQueue[module.platform] = @[]
+              state.buildQueue.mget(module.platform).add(cm)
+              
       else:
         echo("Commit already exists. Not rebuilding.")
     else:
@@ -358,6 +396,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
 
   elif json.existsKey("rebuild"):
     # { "rebuild": "hash" }
+    # TODO: Is this ever used?
     var hash = json["rebuild"].str
     var reply = newJObject()
     if state.database.commitExists(hash, true):

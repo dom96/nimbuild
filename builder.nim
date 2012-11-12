@@ -231,6 +231,9 @@ proc hubSendBuildEnd() =
   bp.kind = BuildEnd
   hubChan.send(bp)
 
+  var obj = %{"eventType": %(int(bEnd))}
+  sendHubMsg($obj & "\c\L")
+
 proc dCopyFile(src, dest: string) =
   echo("[INFO] Copying ", src, " to ", dest)
   copyFile(src, dest)

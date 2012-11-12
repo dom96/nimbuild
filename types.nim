@@ -17,7 +17,7 @@ type
     FTPSpeed*: float
   
   TBuilderEventType* = enum
-    bProcessStart, bProcessLine, bProcessExit, bFTPUploadSpeed
+    bProcessStart, bProcessLine, bProcessExit, bFTPUploadSpeed, bEnd
 
 proc hash*[T: enum](x: T): THash = ord(x)
 
