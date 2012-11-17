@@ -29,6 +29,7 @@ type
     bindPort: int
     scgiPort: int
     redisPort: int
+    isHttp: bool
 
   TModuleStatus = enum
     MSConnecting, ## Module connected, but has not sent the greeting.
@@ -76,9 +77,12 @@ proc parseConfig(state: PState, path: string) =
         of "password":
           state.password = n.value
           inc(count)
+        of "ishttp":
+          state.isHttp = n.value.normalize == "true"
+          inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count < 5:
+    if count < 6:
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
@@ -101,7 +105,8 @@ proc open(configPath: string): PState =
   
   cres.dispatcher.register(cres.sock)
   
-  cres.dispatcher.register(port = TPort(cres.scgiPort), http = true) # TODO: HTTP config.
+  # Jester registration
+  cres.dispatcher.register(port = TPort(cres.scgiPort), http = cres.isHttp)
   
   # Connect to the database
   try:

@@ -1,13 +1,8 @@
 import strtabs, sockets, asyncio, scgi, strutils, os, json,
   osproc, streams, times
 from cgi import URLDecode
+import jester
 import types
-
-const
-  ghRepos = ["https://github.com/Araq/Nimrod",
-             "https://github.com/nimrod-code/nimbuild",
-             "https://github.com/nimrod-code/Aporia",
-             "https://github.com/nimrod-code/babel"]
 
 type
   PState = ref TState
@@ -55,7 +50,6 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
 proc handleMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
 
-
 proc handleModuleMessage(s: PAsyncSocket, state: PState) =
   var line = ""
   if not state.sock.recvLine(line):
@@ -78,8 +72,6 @@ proc hubConnect(state: PState) =
   state.platform = "linux-x86"
   state.timeReconnected = -1.0
 
-proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable, state: PState)
 proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   var cres: PState
   new(cres)
@@ -90,12 +82,8 @@ proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
 
   cres.hubConnect()
   
-  # Open scgi stuff
-  let hr = proc (server: var TAsyncScgiState, client: TSocket, 
-                 input: string, headers: PStringTable) = 
-             handleRequest(server, client, input, headers, cres)
-  cres.scgi = open(hr, scgiPort)
-  cres.dispatcher.register(cres.scgi)
+  # jester
+  cres.dispatcher.register(port = scgiPort, http = false)
   result = cres
 
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
@@ -103,52 +91,23 @@ proc sendBuild(sock: TSocket, payload: PJsonNode) =
   obj["payload"] = payload
   sock.send($obj & "\c\L")
 
-# SCGI
-
-proc safeSend(client: TSocket, data: string) =
-  try:
-    client.send(data)
-  except EOS:
-    echo("[Warning] Got error from send(): ", OSErrorMsg())
-
-proc handleRequest(server: var TAsyncScgiState, client: TSocket, 
-                   input: string, headers: PStringTable,
-                   state: PState) =
-  var hostname = ""
-  try:
-    hostname = gethostbyaddr(headers["REMOTE_ADDR"]).name
-  except EOS:
-    hostname = getCurrentExceptionMsg()
-  
-  echo("Received from IP: ", headers["REMOTE_ADDR"])
-  
-  if headers["REQUEST_METHOD"] == "POST":
-    echo(hostname)
-    #if hostname.endswith("github.com"):
-    if input.startswith("payload="):
-      var inp2 = input.copy(8, input.len-1)
-      var json = parseJson(URLDecode(inp2))
-      if json["repository"]["url"].str in ghRepos:
-        sendBuild(state.sock, json)
-        echo(json["after"].str)
-      else:
-        echo("Not our repo. WTF? Got repo url " & json["repository"]["url"].str)
-    else: echo("No `payload=` at start.")
-    
-    client.safeSend("Status: 202 Accepted\c\L\c\L")
-    client.close()
-    #else:
-    #  echo("Intruder alert! POST detected from an unknown party. Namely: ",
-    #       hostname)
-    #  client.safeSend("Status: 403 Forbidden\c\L\c\L")
-    #  client.close()
-  else:
-    echo("Received ", headers["REQUEST_METHOD"], " request from ", hostname)
-    client.safeSend("Status: 404 Not Found\c\LContent-Type: text/html\c\L\c\L")
-    client.safeSend("404 Not Found" & "\c\L")
-    client.close()
 
 when isMainModule:
   var state = open()
+  
+  post "/":
+    echo("[POST] ", request.ip)
+    var hostname = ""
+    try:
+      hostname = getHostByAddr(request.ip).name
+    except:
+      hostname = getCurrentExceptionMsg()
+    echo("       ", hostname)
+    cond hostname.endswith("github.com")
+    let payload = @"payload"
+    var json = parseJSON(payload)
+    sendBuild(state.sock, json)
+    echo("       ", json["after"].str)
+  
   while state.dispatcher.poll(-1): nil
 
