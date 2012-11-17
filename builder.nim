@@ -597,10 +597,6 @@ proc beginBuild(state: PState) =
   state.building = true
   createThread(state.buildJob.thread, bootstrapTmpl, BuildData)
 
-proc writeLogs(logFile: TFile, s: string) =
-  logFile.write(s)
-  logFile.flushFile()
-
 proc pollBuild(state: PState) =
   ## This is called from the main loop; it checks whether the bootstrap
   ## thread has sent any messages through the channel and it then processes

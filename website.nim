@@ -576,11 +576,11 @@ proc joinUrl(u, u2: string): string =
     return u & u2
   else: return u & "/" & u2
 
-proc getUrl(c: TCommit, p: TPlatform): tuple[weburl, logurl: string] =
-  var weburl = joinUrl(websiteUrl, "commits/$2/$1/" %
-                                     [c.hash[0..11], p.platform])
-  var logurl = joinUrl(weburl, "log.txt")
-  return (weburl, logurl)
+proc getWebUrl(c: TCommit, p: TPlatform): string =
+  result = joinUrl(websiteUrl, "commits/$2/$1/" % [c.hash[0..11], p.platform])
+
+proc getLogUrl(c: TCommit, p: TPlatform): string =
+  result = joinUrl(getWebUrl(c, p), "log.txt")
 
 proc isBuilding(platforms: TTable[string, TStatus], p: string, c: TCommit): bool =
   return platforms[p].isInProgress and platforms[p].hash == c.hash
@@ -595,8 +595,7 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStat
         result.add("<img src=\"$1\"/>" %
                    [req.makeUri("static/images/progress.gif", absolute = false)])
   of bFail:
-    var (weburl, logurl) = getUrl(c, p)
-    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [getLogUrl(c, p)])
   of bSuccess: result.add("ok")
   result.add(" ")
   case p.testResult
@@ -605,11 +604,9 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStat
         result.add("<img src=\"$1\"/>" %
                  [req.makeUri("static/images/progress.gif", absolute = false)])
   of tFail:
-    var (weburl, logurl) = getUrl(c, p)
-    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logurl])
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [getLogUrl(c, p)])
   of tSuccess:
-    var (weburl, logurl) = getUrl(c, p)
-    var testresultsURL = joinUrl(weburl, "testresults.html")
+    var testresultsURL = joinUrl(getWebUrl(c, p), "testresults.html")
     var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
@@ -629,9 +626,8 @@ proc genBuildResult(state: PState, c: TCommit, p: TPlatform): string =
       result.add(htmlgen.`div`(class = "half indivUnknown", 
                  htmlgen.p("Unknown")))
   of bFail:
-    var (weburl, logurl) = getUrl(c, p)
     result.add(htmlgen.`div`(class = "half indivFailure", 
-                 a(href = logurl, class = "fail", "Fail")
+                 a(href = getLogUrl(c, p), class = "fail", "Fail")
                ))
   of bSuccess:
     result.add(htmlgen.`div`(class = "half indivSuccess", "OK"))
@@ -650,13 +646,11 @@ proc genTestResult(state: PState, c: TCommit, p: TPlatform): string =
       result.add(htmlgen.`div`(class = "half indivUnknown", 
                  htmlgen.p("Unknown")))
   of tFail:
-    var (weburl, logurl) = getUrl(c, p)
     result.add(htmlgen.`div`(class = "half indivFailure", 
-                 a(href = logurl, class = "fail", "Fail")
+                 a(href = getLogUrl(c, p), class = "fail", "Fail")
                ))
   of tSuccess:
-    var (weburl, logurl) = getUrl(c, p)
-    var testresultsURL = joinUrl(weburl, "testresults.html")
+    var testresultsURL = joinUrl(getWebUrl(c, p), "testresults.html")
     result.add(htmlgen.`div`(class = "half indivSuccess", 
                  a(href = testResultsURL, class = "success", 
                    $(p.passed) & "/" & $(p.total-p.skipped))
@@ -983,8 +977,9 @@ proc cleanup(state: PState) =
 
 proc handleAccept(s: PAsyncSocket, state: PState) =
   # Connection from a module
-  var (client, IPAddr) = s.acceptAddr()
-  var clientS = @[client.getSocket]
+  var client: PAsyncSocket; new(client)
+  var IPAddr = ""
+  s.acceptAddr(client, IPAddr)
   state.addModule(client, IPAddr)
 
 when isMainModule:
