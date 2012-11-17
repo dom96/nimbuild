@@ -267,7 +267,7 @@ div.indivUnknown {
 
 
 div.platfBuildResult div.half {
-  width: 14%;
+  width: 22%;
   float: left;
   padding-left: 1%;
 }
@@ -277,13 +277,13 @@ div.platfBuildResult .lastResults {
 }
 
 div.platfBuildResult .lastResults .branch {
-  width: 69%;
+  width: 53%;
   float: left;
   padding-left: 1%;
   border-top: 3px solid #8A8A8A;
 }
 
-div.platfBuildResult .lastResults .branch span {
+div.platfBuildResult .lastResults .branch span, span.branch {
   border-radius: 2px 2px 2px 2px;
   color: white;
   font-size: 10pt;
@@ -292,12 +292,13 @@ div.platfBuildResult .lastResults .branch span {
   cursor: help;
 }
 
-div.platfBuildResult .lastResults .master span {
+div.platfBuildResult .lastResults .master span, span.master {
   background-color: #21A607;
 }
 
 div.platfBuildResult .buildInfo {
   padding-top: 5px;
+  padding-bottom: 5px;
   padding-right: 5px;
   border-bottom: 2px solid #1d1d1d;
 }

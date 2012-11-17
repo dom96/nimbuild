@@ -23,7 +23,7 @@ type
     modules: seq[TModule]
     database: TDb
     platforms: TTable[string, TStatus]
-    buildQueue: TTable[string, seq[TBQCommit]] # Platform, (hash, payload)
+    buildQueue: TTable[string, seq[TBQCommit]] # Platform, [(hash, branch, payload)]
     password: string ## The password that foreign modules need to be accepted.
     bindAddr: string
     bindPort: int
@@ -42,8 +42,9 @@ type
     lastPong: float
     pinged: bool # whether we are waiting for a pong from the module.
     ping: float # in seconds
-    ip: string # IP address this module is connecting from
+    ip: string # IP address this module is connecting from.
     delegID: PDelegate
+    logFile: TFile # Only applicable to a module of type builder.
 
 proc parseConfig(state: PState, path: string) =
   var f = newFileStream(path, fmRead)
@@ -134,12 +135,18 @@ proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
 
   state.modules.add(module)
 
-proc findBuilderModule(state: PState, p: string, module: var TModule): bool =
+proc findBuilderModule(state: PState, platf: string, module: var TModule): bool =
   result = false
   for i in state.modules:
-    if i.name == "builder" and i.platform == p:
+    if i.name == "builder" and i.platform == platf:
       module = i
       return true
+
+proc mGetBuilderModule(state: PState, platf: string): var TModule =
+  for i in 0..state.modules.len-1:
+    if state.modules[i].name == "builder" and state.modules[i].platform == platf:
+      return state.modules[i]
+  raise newException(EInvalidValue, "Platform could not be found.")
 
 proc parseGreeting(state: PState, m: var TModule, line: string): bool =
   # { "name": "modulename" }
@@ -207,11 +214,10 @@ proc remove(state: PState, module: TModule) =
       state.modules.delete(i)
       return
 
-proc setJob(state: PState, p: string, job: TBuilderJob, hash: string) =
+proc setJob(state: PState, p: string, job: TBuilderJob) =
   var s = state.platforms[p]
   s.isInProgress = true
   s.desc = ""
-  s.hash = hash
   s.jobs[job] = jInProgress
   state.platforms[p] = s
 
@@ -230,8 +236,8 @@ proc setDesc(state: PState, p: string, desc: string) =
   s.desc = desc
   state.platforms[p] = s
 
-proc writeBuildSpecificLogs(state: PState, p: string, line: string) =
-  # ..
+proc writeBuildSpecificLogs(state: PState, platf: string, line: string) =
+  mGetBuilderModule(state, platf).logFile.write(line & "\n")
 
 proc checkBuilderQueue(state: PState, platform: string) =
   ## Checks builder queue and sends a message to the builder immediatelly.
@@ -249,12 +255,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
   if json.existsKey("job"):
-    # { job: TBuilderJob, hash: string }
-    # Start of a builder job.
-    assert json.existsKey("hash")
-    setJob(state, m.platform, TBuilderJob(json["job"].num), json["hash"].str)
-    
-    # TODO: Open log file.
+    # { job: TBuilderJob}
+    # Change of a builder job.
+    setJob(state, m.platform, TBuilderJob(json["job"].num))
     
   elif json.existsKey("result"):
     let result = TResult(json["result"].num)
@@ -315,7 +318,6 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
   
   elif json.existsKey("eventType"):
     let job = state.platforms[m.platform]
-    assert job.isInProgress
     if json.existsKey("desc"):
       setDesc(state, m.platform, json["desc"].str)
     assert json.existsKey("eventType")
@@ -333,8 +335,28 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     of bFtpUploadSpeed:
       state.platforms.mget(m.platform).FTPSpeed = json["speed"].fnum
     of bEnd:
+      # Close file
+      state.modules[mIndex].logFile.close()
+    
       # Build ended. Check queue for more builds awaiting.
       checkBuilderQueue(state, m.platform)
+    of bStart:
+      # Build started, open log file.
+      assert json.existsKey("hash")
+      assert json.existsKey("branch")
+      let commitHash = json["hash"].str
+      let commitBranch = json["branch"].str
+      state.platforms.mget(m.platform).hash = commitHash
+      state.platforms.mget(m.platform).branch = commitBranch
+      let commitPath = getStaticDir() / "commits" /
+                       makeCommitPath(m.platform, commitHash)
+      if not existsDir(commitPath.parentDir):
+        createDir(commitPath.parentDir)
+      if not existsDir(commitPath):
+        createDir(commitPath)
+      let logFilepath = getStaticDir() / "commits" /
+                        makeCommitPath(m.platform, commitHash) / "logs.txt"
+      state.modules[mIndex].logFile = open(logFilepath, fmWrite)
     
   elif json.existsKey("payload"):
     # { "payload": { .. } }
@@ -832,14 +854,31 @@ proc genSpecificBuilderHTML(state: PState,
   var builderModule: TModule
   if findBuilderModule(state, platfName, builderModule):
     let job = state.platforms[platfName]
+    let lag = int(builderModule.ping / 1000.0)
+    var lagTxt = ""
+    if lag == 0:
+      lagTxt = "<0ms"
+    else:
+      lagTxt = $lag & "ms"
+    
     var progressSpecific = ""
     if job.isInProgress:
       progressSpecific.add imgProgress
-      progressSpecific.add p(job.hash[0..11])
+      let masterSpecific = if job.branch == "master": "master" else: ""
+      progressSpecific.add p("Current: " & job.hash[0..11] & " (" &
+                             span(class="branch " & masterSpecific, job.branch) &
+                             ")")
+    var queueSpecific = ""
+    if state.buildQueue.hasKey(platfName):
+      let q = state.buildQueue[platfName]
+      if q.len != 0:
+        queueSpecific = p($q.len & " commits in build queue")
+    
     result.html = htmlgen.`div`(class = "buildInfo",
         progressSpecific,
-        p($job.jobs),
-        p($(int(builderModule.ping / 1000.0)) & "ms")
+        p($job),
+        p(lagTxt),
+        queueSpecific
       )
     result.inProgress = job.isInProgress
   else:
@@ -886,6 +925,10 @@ proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): 
           builderStatus)
   
   result = ""
+  # 3 platforms per single row, only needed to keep the boxes in one single row
+  # ... layout fix basically.
+  var platfsCol = ""
+  var platfsCount = 0
   for platfName in platforms:
     if not platformBuilds.hasKey(platfName):
       let (inProgress, html) = genSpecificBuilderHTML(state, platfName)
@@ -918,7 +961,14 @@ proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): 
     else:
       platfClass = "platfWarning" # Just to be explicit.
     
-    result.add genPlatfBuildRes(state, platfClass, platfName, branches, builderHtml)
+    platfsCol.add genPlatfBuildRes(state, platfClass, platfName, branches, builderHtml)
+    inc(platfsCount)
+    
+    if platfsCount == 3:
+      result.add(htmlgen.`div`(style="float: left; width: 100%;", platfsCol))
+      platfsCount = 0
+      platfsCol = ""
+    
       
 include "index.html"
 # Jester

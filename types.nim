@@ -11,13 +11,14 @@ type
     isInProgress*: bool
     desc*: string
     hash*: string
+    branch*: string
     jobs*: TTable[TBuilderJob, TProgress]
     cmd*: string
     args*: string
     FTPSpeed*: float
   
   TBuilderEventType* = enum
-    bProcessStart, bProcessLine, bProcessExit, bFTPUploadSpeed, bEnd
+    bProcessStart, bProcessLine, bProcessExit, bFTPUploadSpeed, bEnd, bStart
 
 proc hash*[T: enum](x: T): THash = ord(x)
 

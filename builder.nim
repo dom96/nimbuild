@@ -174,6 +174,12 @@ template sendHubMsg(m: string): stmt =
   bp.msg = m
   hubChan.send(bp)
 
+proc hubSendBuildStart(hash, branch: string) =
+  var obj = %{"eventType": %(int(bStart)),
+              "hash": %hash,
+              "branch": %branch}
+  sendHubMsg($obj & "\c\L")
+
 proc hubSendProcessStart(process: PProcess, cmd, args: string) =
   var bp: TBuildProgress
   bp.kind = ProcessStart
@@ -204,9 +210,8 @@ proc hubSendFTPUploadSpeed(speed: float) =
               "speed": %speed}
   sendHubMsg($obj & "\c\L")
 
-proc hubSendJobUpdate(job: TBuilderJob, hash: string) =
-  var obj = %{"job": %(int(job)),
-              "hash": %(hash)}
+proc hubSendJobUpdate(job: TBuilderJob) =
+  var obj = %{"job": %(int(job))}
   sendHubMsg($obj & "\c\L")
 
 proc hubSendBuildFail(msg: string) =
@@ -342,11 +347,12 @@ proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
     if hasProcessTerminated(process, exitCode):
       break
   result = exitCode == QuitSuccess 
-  echo(execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
+  echo("! " & execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
   pStdout.close()
   process.close()
   
 proc run(workDir: string, exec: string, args: varargs[string]) =
+  echo("! " & exec.extractFilename & " " & join(args, " ") & " started.")
   if not runProcess(workDir, exec, args):
     raise newException(EBuildEnd,
         "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed.")
@@ -473,8 +479,10 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
   buildTmpl:
     let cfg = info.cfg
     let commitHash = info.payload["after"].str
+    let commitBranch = info.payload["ref"].str[11 .. -1]
     let commitPath = makeCommitPath(cfg.platform, commitHash)
-    hubSendJobUpdate(jBuild, commitHash)
+    hubSendBuildStart(commitHash, commitBranch)
+    hubSendJobUpdate(jBuild)
     
     # GIT
     setGIT(info.payload, cfg.nimLoc)
@@ -494,7 +502,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
                  buildZipFilePath.extractFilename)
 
     hubSendBuildSuccess()
-    hubSendJobUpdate(jTest, commitHash)
+    hubSendJobUpdate(jTest)
     var testResultsPath = nimTest(commitPath, cfg.nimLoc, cfg.websiteLoc)
     
     # --- Upload testresults.html ---
@@ -509,7 +517,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     # --- Start of doc gen ---
     # Create the upload directory and the docs directory on the website
     if cfg.docgen:
-      hubSendJobUpdate(jDocGen, commitHash)
+      hubSendJobUpdate(jDocGen)
       dCreateDir(cfg.nimLoc / "web" / "upload")
       dCreateDir(cfg.websiteLoc / "docs")
       run(cfg.nimLoc, "koch", "web")
@@ -522,7 +530,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     if cfg.csourceGen:
       # Rename the build directory so that the csources from the git repo aren't
       # overwritten
-      hubSendJobUpdate(jCSrcGen, commitHash)
+      hubSendJobUpdate(jCSrcGen)
       dMoveDir(cfg.nimLoc / "build", cfg.nimLoc / "build_old")
       dCreateDir(cfg.nimLoc / "build")
 
