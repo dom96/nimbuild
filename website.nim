@@ -202,6 +202,13 @@ proc uniqueMName(module: TModule): string =
   of MSConnecting:
     result.add "Unknown (" & module.ip & ")"
 
+proc IRCAnnounce(state: PState, msg: string, important = false) =
+  if "irc" in state.modules:
+    for module in items(state.modules):
+      if module.name == "irc":
+        let json = %{"announce": %msg, "important": %important}
+        module.sock.send($json & "\c\L")
+
 proc remove(state: PState, module: TModule) =
   for i in 0..len(state.modules)-1:
     var m = state.modules[i]
@@ -211,7 +218,7 @@ proc remove(state: PState, module: TModule) =
       state.dispatcher.unregister(state.modules[i].delegID)
       state.modules[i].sock.close()
       echo(uniqueMName(state.modules[i]), " disconnected.")
-
+      IRCAnnounce(state, uniqueMName(state.modules[i]) & " disconnected.", true)
       # if module is a builder remove it from platforms.
       if m.name == "builder":
         state.platforms.del(m.platform)
@@ -273,6 +280,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
                                       $int(bSuccess))
+        state.IRCAnnounce(m.platform & ": Build OK.")
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
@@ -283,6 +291,11 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         # the website will show the 'progress.gif' image, which we don't want.
         state.database.updateProperty(platf.hash, m.platform,
             "testResult", $int(tFail))
+        var important = false
+        if platf.branch == "master":
+          important = true
+        state.IRCAnnounce("Build failed for: " & m.platform & " (" &
+                    json["detail"].str, important)
     of jTest:
       if result == Success:
         assert(json.existsKey("total"))
@@ -299,22 +312,31 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
             "skipped", $json["skipped"].num)
         state.database.updateProperty(platf.hash, m.platform,
             "failed", $json["failed"].num)
+        state.IRCAnnounce(m.platform & ": Test results: " & $json["passed"].num &
+                    "/" & $json["total"].num)
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
             "testResult", $int(tFail))
         state.database.updateProperty(platf.hash, m.platform,
             "failReason", json["detail"].str)
+        var important = false
+        if platf.branch == "master":
+          important = true
+        state.IRCAnnounce("Testing failed for: " & m.platform & " (" &
+                    json["detail"].str, important)
     of jDocGen:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "docs", "t")
       else:
         state.database.updateProperty(platf.hash, m.platform, "docs", "f")
+        state.IRCAnnounce("Docgen failed.", true)
     of jCSrcGen:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "csources", "t")
       else:
         state.database.updateProperty(platf.hash, m.platform, "csources", "f")
+        state.IRCAnnounce("C Sources gen failed.", true)
     
     if json.existsKey("detail"):
       setResult(state, m.platform, result, json["detail"].str)
