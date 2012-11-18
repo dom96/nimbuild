@@ -40,9 +40,9 @@ const
 
 proc initSettings(settings: var TSettings) =
   settings.trustedUsers = @[(nick: "dom96", host: "unaffiliated/dom96")]
-  settings.announceRepos = @[]
+  settings.announceRepos = @["Araq/Nimrod"]
   settings.announceChans = @["#nimbuild"]
-  settings.announceNicks = @[]
+  settings.announceNicks = @["dom96"]
 
 proc saveSettings(state: PState) =
   store(newFileStream("nimbot.json", fmWrite), state.settings)
