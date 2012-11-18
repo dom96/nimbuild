@@ -362,11 +362,13 @@ proc run(workDir: string, exec: string, args: varargs[string]) =
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
   let branch = payload["ref"].str[11 .. -1]
+  let commitHash = payload["after"].str
 
   run(nimLoc, findExe("git"), "checkout", ".")
   run(nimLoc, findExe("git"), "checkout", branch)
   # TODO: Capture changed files from output?
-  run(nimLoc, findExe("git"), "pull", "origin", branch)
+  run(nimLoc, findExe("git"), "pull")
+  run(nimLoc, findExe("git"), "checkout", commitHash)
 
 proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   ## Set of steps to bootstrap Nimrod. In debug and release mode.

@@ -218,7 +218,8 @@ proc remove(state: PState, module: TModule) =
       state.dispatcher.unregister(state.modules[i].delegID)
       state.modules[i].sock.close()
       echo(uniqueMName(state.modules[i]), " disconnected.")
-      IRCAnnounce(state, uniqueMName(state.modules[i]) & " disconnected.", true)
+      if m.name != "irc":
+        IRCAnnounce(state, uniqueMName(state.modules[i]) & " disconnected.", true)
       # if module is a builder remove it from platforms.
       if m.name == "builder":
         state.platforms.del(m.platform)

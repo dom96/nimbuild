@@ -401,6 +401,10 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, state: PState) =
       createSeen(PSeenNick, event.nick, "#nimrod")
       seenNick.newNick = event.params[0]
       state.database.setSeen(seenNick)
+    of MNumeric:
+      if event.numeric == "433":
+        # Nickname already in use.
+        irc.send("NICK " & irc.getNick() & "_")
     else:
       nil # TODO: ?
 
