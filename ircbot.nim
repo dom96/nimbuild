@@ -437,7 +437,7 @@ proc open(port: TPort = TPort(5123)): PState =
   cres.irclogsFilename = ""
   cres.getCommandArgs()
   
-  if cres.irclogsFilename = "":
+  if cres.irclogsFilename == "":
     quit("You need to specify the irclogs filename.")
   
   cres.hubConnect()
