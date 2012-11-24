@@ -434,7 +434,11 @@ proc open(port: TPort = TPort(5123)): PState =
     load(newFileStream("nimbot.json", fmRead), cres.settings)
   
   cres.hubPort = port
+  cres.irclogsFilename = ""
   cres.getCommandArgs()
+  
+  if cres.irclogsFilename = "":
+    quit("You need to specify the irclogs filename.")
   
   cres.hubConnect()
 
