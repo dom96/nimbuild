@@ -240,7 +240,6 @@ proc setResult(state: PState, p: string, res: TResult, detail: string) =
   s.isInProgress = false
   s.jobs[job] = if res == Success: jSuccess else: jFail
   s.desc = detail
-  s.hash = ""
   state.platforms[p] = s
 
 proc setDesc(state: PState, p: string, desc: string) =
@@ -256,10 +255,10 @@ proc checkBuilderQueue(state: PState, platform: string) =
   ## Checks builder queue and sends a message to the builder immediatelly.
   if state.buildQueue.hasKey(platform):
     let cm = state.buildQueue.mget(platform).pop()
-    let json = %{"payload": cm.payload, "rebuild": %false}
+    let json = %{"payload": cm.payload["payload"], "rebuild": %false}
     var builder: TModule
     assert findBuilderModule(state, platform, builder)
-    builder.sock.send($json)
+    builder.sock.send($json & "\c\L")
 
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.

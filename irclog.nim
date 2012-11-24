@@ -5,23 +5,24 @@ type
   TLogger = object # Items get erased when new day starts.
     startTime: TTimeInfo
     items: seq[tuple[time: TTime, msg: TIRCEvent]]
+    logFilepath: string
   PLogger* = ref TLogger
 
-# TODO: Current implementation writes whole files, every message. Not really
-# sure how else to approach this.
+# TODO: Current implementation writes whole files, every message.
+# Write JSON instead and let the website render the JSON.
 
-const 
-  logFilepath = "/home/nimrod/public_html/irclogs"
+const
   webFP = {fpUserRead, fpUserWrite, fpUserExec,
            fpGroupRead, fpGroupExec, fpOthersRead, fpOthersExec}
 
 proc loadLogger(f: string): PLogger =
   load(newFilestream(f, fmRead), result)
 
-proc newLogger*(): PLogger =
+proc newLogger*(logFilepath: string): PLogger =
   new(result)
   result.startTime = getTime().getGMTime()
   result.items = @[]
+  result.logFilepath = logFilepath
   let log = logFilepath / result.startTime.format("dd'-'MM'-'yyyy'.json'")
   if existsFile(log):
     result = loadLogger(log)
@@ -107,9 +108,9 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?
     logger.items.add((getTime(), msg))
-    logger.save(logFilepath / "index.html", true)
+    logger.save(logger.logFilepath / "index.html", true)
     # This is saved so that it can be reloaded later, if NimBot crashes for example.
-    logger.save(logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
+    logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
   else: nil
 
 proc log*(logger: PLogger, nick, msg: string) =

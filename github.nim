@@ -1,5 +1,5 @@
 import strtabs, sockets, asyncio, scgi, strutils, os, json,
-  osproc, streams, times
+  osproc, streams, times, parseopt
 from cgi import URLDecode
 import jester
 import types
@@ -13,9 +13,27 @@ type
     platform: string
 
     hubPort: TPort
+    scgiPort: TPort
 
     timeReconnected: float
 
+# Command line reading
+proc getCommandArgs(state: PState) =
+  for kind, key, value in getOpt():
+    case kind
+    of cmdArgument:
+      quit("Syntax: ./github -hp hubPort -sp scgiPort")
+    of cmdLongOption, cmdShortOption:
+      if value == "":
+        quit("Syntax: ./github -hp hubPort -sp scgiPort")
+      case key
+      of "hubPort", "hp":
+        state.hubPort = TPort(parseInt(value))
+      of "scgiPort", "sp":
+        state.scgiPort = TPort(parseInt(value))
+      else: quit("Syntax: ./github -hp hubPort -sp scgiPort")
+    of cmdEnd: assert false
+    
 # Communication
 
 proc parseReply(line: string, expect: string): Bool =
@@ -73,24 +91,24 @@ proc hubConnect(state: PState) =
   state.timeReconnected = -1.0
 
 proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
-  var cres: PState
-  new(cres)
+  new(result)
   
-  cres.dispatcher = newDispatcher()
+  result.dispatcher = newDispatcher()
   
-  cres.hubPort = port
+  result.hubPort = port
+  result.scgiPort = scgiPort
+  
+  result.getCommandArgs()
 
-  cres.hubConnect()
+  result.hubConnect()
   
   # jester
-  cres.dispatcher.register(port = scgiPort, http = false)
-  result = cres
+  result.dispatcher.register(port = result.scgiPort, http = false)
 
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
   var obj = newJObject()
   obj["payload"] = payload
   sock.send($obj & "\c\L")
-
 
 when isMainModule:
   var state = open()
@@ -108,6 +126,7 @@ when isMainModule:
     var json = parseJSON(payload)
     sendBuild(state.sock, json)
     echo("       ", json["after"].str)
+    resp "Cheers, Github."
   
   while state.dispatcher.poll(-1): nil
 

@@ -1,4 +1,4 @@
-import irc, sockets, asyncio, json, os, strutils, db, times, redis, irclog, marshal, streams
+import irc, sockets, asyncio, json, os, strutils, db, times, redis, irclog, marshal, streams, parseopt
 
 
 type
@@ -11,6 +11,7 @@ type
     database: TDb
     dbConnected: bool
     logger: PLogger
+    irclogsFilename: string
     settings: TSettings
   
   TSettings = object
@@ -37,6 +38,22 @@ const
   ircServer = "irc.freenode.net"
   joinChans = @["#nimrod"]
   botNickname = "NimBot"
+
+proc getCommandArgs(state: PState) =
+  for kind, key, value in getOpt():
+    case kind
+    of cmdArgument:
+      quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+    of cmdLongOption, cmdShortOption:
+      if value == "":
+        quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+      case key
+      of "hubPort", "hp":
+        state.hubPort = TPort(parseInt(value))
+      of "irclogs", "il":
+        state.irclogsFilename = value
+      else: quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+    of cmdEnd: assert false
 
 proc initSettings(settings: var TSettings) =
   settings.trustedUsers = @[(nick: "dom96", host: "unaffiliated/dom96")]
@@ -112,13 +129,13 @@ template pm(chan, msg: string): stmt =
   state.logger.log("NimBot", msg)
 
 proc announce(state: PState, msg: string, important: bool) =
-  var msg = ""
+  var newMsg = ""
   if important:
-    msg.add(join(state.settings.announceNicks, ","))
-    msg.add(": ")
-  msg.add(msg)
+    newMsg.add(join(state.settings.announceNicks, ","))
+    newMsg.add(": ")
+  newMsg.add(msg)
   for i in state.settings.announceChans:
-    pm(i, msg)
+    pm(i, newMsg)
 
 proc isRepoAnnounced(state: PState, url: string): bool =
   result = false
@@ -417,6 +434,8 @@ proc open(port: TPort = TPort(5123)): PState =
     load(newFileStream("nimbot.json", fmRead), cres.settings)
   
   cres.hubPort = port
+  cres.getCommandArgs()
+  
   cres.hubConnect()
 
   # Connect to the irc server.
@@ -431,9 +450,9 @@ proc open(port: TPort = TPort(5123)): PState =
 
   cres.dbConnected = false
 
-  cres.logger = newLogger()
+  cres.logger = newLogger(cres.irclogsFilename)
   result = cres
-
+  
 var state = ircbot.open() # Connect to the website and the IRC server.
 
 while state.dispatcher.poll():
