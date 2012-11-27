@@ -1,7 +1,7 @@
 # This will build nimrod using the specified settings.
 import
   osproc, json, sockets, asyncio, os, streams, parsecfg, parseopt, strutils,
-  ftpclient, times
+  ftpclient, times, strtabs
 import types
 
 const
@@ -321,7 +321,8 @@ proc hasBuildTerminated(): bool =
     assert thrCmd == ThreadTerminate
     return true
 
-proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
+proc runProcess(env: PStringTable = nil, workDir, execFile: string,
+                args: openarray[string]): bool =
   ## Returns ``true`` if process finished successfully. Otherwise ``false``.
   result = true
   var cmd = ""
@@ -329,7 +330,7 @@ proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
     cmd = execFile.changeFileExt(ExeExt)
   else:
     cmd = workDir / execFile.changeFileExt(ExeExt)
-  var process = startProcess(cmd, workDir, args)
+  var process = startProcess(cmd, workDir, args, env)
   hubSendProcessStart(process, execFile.extractFilename, join(args, " "))
   var pStdout = process.outputStream
   proc hasProcessTerminated(process: PProcess, exitCode: var int): bool =
@@ -343,6 +344,7 @@ proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
   while true:
     line = ""
     if pStdout.readLine(line) and line != "":
+      echo("[Thread] Process Line: ", line)
       hubSendProcessLine(line)
     if hasProcessTerminated(process, exitCode):
       break
@@ -350,14 +352,26 @@ proc runProcess(workDir, execFile: string, args: openarray[string]): bool =
   echo("! " & execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
   pStdout.close()
   process.close()
-  
-proc run(workDir: string, exec: string, args: varargs[string]) =
+
+proc changeNimrodInPATH(bindir: string): string =
+  var paths = getEnv("PATH").split(pathSep)
+  for i in 0 .. <paths.len:
+    let noTrailing = if paths[i][paths[i].len-1] == dirSep: paths[i][0 .. -2] else: paths[i]
+    if cmpPaths(noTrailing, findExe("nimrod").splitFile.dir) == 0:
+      paths[i] = bindir
+  return paths.join($pathSep)
+
+proc run(env: PStringTable = nil, workDir: string, exec: string,
+         args: varargs[string]) =
   echo("! " & exec.extractFilename & " " & join(args, " ") & " started.")
-  if not runProcess(workDir, exec, args):
+  if not runProcess(env, workDir, exec, args):
     raise newException(EBuildEnd,
         "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed.")
   if hasBuildTerminated():
     raise newException(EBuildEnd, "Bootstrap aborted.")
+
+proc run(workDir: string, exec: string, args: varargs[string]) =
+  run(nil, workDir, exec, args)
 
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
@@ -522,7 +536,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       hubSendJobUpdate(jDocGen)
       dCreateDir(cfg.nimLoc / "web" / "upload")
       dCreateDir(cfg.websiteLoc / "docs")
-      run(cfg.nimLoc, "koch", "web")
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "web")
       # Copy all the docs to the website.
       dCopyDir(cfg.nimLoc / "web" / "upload", cfg.websiteLoc / "docs")
       
@@ -536,7 +551,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       dMoveDir(cfg.nimLoc / "build", cfg.nimLoc / "build_old")
       dCreateDir(cfg.nimLoc / "build")
 
-      run(cfg.nimLoc, "koch", "csource")
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "csource")
 
       # Zip up the csources.
       # -- Move the build directory to the zip location
@@ -614,6 +630,7 @@ proc pollBuild(state: PState) =
       of ProcessExit:
         state.buildJob.p = nil
       of HubMsg:
+        echo("[pollBuild] hubMsg: ", msg.msg)
         state.sock.send(msg.msg)
       of BuildEnd:
         state.building = false
