@@ -43,16 +43,16 @@ proc getCommandArgs(state: PState) =
   for kind, key, value in getOpt():
     case kind
     of cmdArgument:
-      quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+      quit("Syntax: ./ircbot [--hp hubPort] --il irclogsPath")
     of cmdLongOption, cmdShortOption:
       if value == "":
-        quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+        quit("Syntax: ./ircbot [--hp hubPort] --il irclogsPath")
       case key
       of "hubPort", "hp":
         state.hubPort = TPort(parseInt(value))
       of "irclogs", "il":
         state.irclogsFilename = value
-      else: quit("Syntax: ./builder [-hp hubPort] -il irclogsPath")
+      else: quit("Syntax: ./ircbot [--hp hubPort] --il irclogsPath")
     of cmdEnd: assert false
 
 proc initSettings(settings: var TSettings) =
@@ -88,7 +88,7 @@ proc getSeen(d: TDb, nick: string, s: var TSeen): bool =
     for key, value in d.r.hPairs("seen:" & nick):
       case normalize(key)
       of "type":
-        #s.kind = value.parseInt.TSeenType
+        # Type is retrieved before this.
       of "channel":
         s.channel = value
       of "timestamp":
@@ -125,8 +125,8 @@ proc limitCommitMsg(m: string): string =
   return m1
 
 template pm(chan, msg: string): stmt = 
-  state.ircClient[].privmsg(chan, msg)
-  state.logger.log("NimBot", msg)
+  state.ircClient.privmsg(chan, msg)
+  state.logger.log("NimBot", msg, chan)
 
 proc announce(state: PState, msg: string, important: bool) =
   var newMsg = ""
@@ -257,18 +257,12 @@ proc `$`(s: seq[tuple[nick: string, host: string]]): string =
     result.add(i.nick & "@" & i.host & ", ")
   result = result[0 .. -3]
 
-proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, state: PState) =
+proc handleIrc(irc: PAsyncIRC, event: TIRCEvent, state: PState) =
   case event.typ
+  of EvConnected: nil
   of EvDisconnected:
-    while not state.ircClient[].isConnected:
-      try:
-        state.ircClient.connect()
-      except:
-        echo("Error reconnecting: ", getCurrentExceptionMsg())
-      
-      echo("Waiting 5 seconds...")
-      sleep(5000)
-    echo("Reconnected successfully!")
+    echo("Disconnected from server.")
+    state.ircClient.reconnect()
   of EvMsg:
     echo("< ", event.raw)
     # Logs:
@@ -282,8 +276,8 @@ proc handleIrc(irc: var TAsyncIRC, event: TIRCEvent, state: PState) =
       case words[0]
       of "!ping": pmOrig("pong")
       of "!lag":
-        if state.ircClient[].getLag != -1.0:
-          var lag = state.ircClient[].getLag
+        if state.ircClient.getLag != -1.0:
+          var lag = state.ircClient.getLag
           lag = lag * 1000.0
           pmOrig($int(lag) & "ms between me and the server.")
         else:
@@ -443,7 +437,7 @@ proc open(port: TPort = TPort(5123)): PState =
   cres.hubConnect()
 
   # Connect to the irc server.
-  let ie = proc (irc: var TAsyncIRC, event: TIRCEvent) =
+  let ie = proc (irc: PAsyncIRC, event: TIRCEvent) =
              handleIrc(irc, event, cres)
   var joinChannels = joinChans
   joinChannels.add(cres.settings.announceChans)

@@ -99,6 +99,7 @@ proc save(logger: PLogger, filename: string, index = false) =
   #  writeFile(filename.changeFileExt("json"), $$logger)
 
 proc log*(logger: PLogger, msg: TIRCEvent) =
+  if msg.origin != "#nimrod": return
   if getTime().getGMTime().yearday != logger.startTime.yearday:
     # Time to cycle to next day.
     # Reset logger.
@@ -113,10 +114,11 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
     logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
   else: nil
 
-proc log*(logger: PLogger, nick, msg: string) =
+proc log*(logger: PLogger, nick, msg, chan: string) =
   var m: TIRCEvent
   m.typ = EvMsg
   m.cmd = MPrivMsg
-  m.params = @[msg]
+  m.params = @[chan, msg]
+  m.origin = chan
   m.nick = nick
   logger.log(m)
