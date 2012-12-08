@@ -14,11 +14,11 @@
   #platforms.sort(cmpPlatforms, Descending)
   <div id="header">
     NimBuild - Nimrod's build farm.
-    ${genTopButtons(state.platforms, entries)}
+    ${genTopButtons(state.req, state.platforms, entries)}
   </div>
   <div id="content">
   <!-- Output information from database -->
-  ${genDownloadTable(entries, platforms)}
+  ${genDownloadTable(state.req, entries, platforms)}
   #if platforms.len() > 0:
     <div id="resultsWrapper">
       ${genBuildResults(state, platforms, entries)}

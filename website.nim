@@ -6,9 +6,6 @@ import types, db, htmlhelp
 
 import jester
 
-const
-  websiteURL = "http://build.nimrod-code.org"
-
 type
   TBQCommit = object
     hash: string
@@ -603,16 +600,18 @@ proc joinUrl(u, u2: string): string =
     return u & u2
   else: return u & "/" & u2
 
-proc getWebUrl(c: TCommit, p: TPlatform): string =
-  result = joinUrl(websiteUrl, "commits/$2/$1/" % [c.hash[0..11], p.platform])
+proc getWebUrl(state: PState, c: TCommit, p: TPlatform): string =
+  result = state.req.makeUri("commits/$2/$1/" % [c.hash[0..11], p.platform],
+                             absolute = false)
 
-proc getLogUrl(c: TCommit, p: TPlatform): string =
-  result = joinUrl(getWebUrl(c, p), "log.txt")
+proc getLogUrl(state: PState, c: TCommit, p: TPlatform): string =
+  result = joinUrl(getWebUrl(state, c, p), "log.txt")
 
 proc isBuilding(platforms: TTable[string, TStatus], p: string, c: TCommit): bool =
   return platforms[p].isInProgress and platforms[p].hash == c.hash
 
-proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStatus],
+proc genPlatformResult(state: PState, c: TCommit, p: TPlatform,
+                       platforms: TTable[string, TStatus],
                        req: TRequest): string =
   result = ""
   case p.buildResult
@@ -622,7 +621,8 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStat
         result.add("<img src=\"$1\"/>" %
                    [req.makeUri("static/images/progress.gif", absolute = false)])
   of bFail:
-    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [getLogUrl(c, p)])
+    let logUrl = getLogUrl(state, c, p)
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logUrl])
   of bSuccess: result.add("ok")
   result.add(" ")
   case p.testResult
@@ -631,9 +631,10 @@ proc genPlatformResult(c: TCommit, p: TPlatform, platforms: TTable[string, TStat
         result.add("<img src=\"$1\"/>" %
                  [req.makeUri("static/images/progress.gif", absolute = false)])
   of tFail:
-    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [getLogUrl(c, p)])
+    let logUrl = getLogUrl(state, c, p)
+    result.add("<a href=\"$1\" class=\"fail\">fail</a>" % [logUrl])
   of tSuccess:
-    var testresultsURL = joinUrl(getWebUrl(c, p), "testresults.html")
+    var testresultsURL = joinUrl(getWebUrl(state, c, p), "testresults.html")
     var percentage = float(p.passed) / float(p.total - p.skipped) * 100.0
     result.add("<a href=\"$1\" class=\"success\">" % [testresultsURL] &
                formatFloat(percentage, precision=4) & "%</a>")
@@ -654,7 +655,7 @@ proc genBuildResult(state: PState, c: TCommit, p: TPlatform): string =
                  htmlgen.p("Unknown")))
   of bFail:
     result.add(htmlgen.`div`(class = "half indivFailure", 
-                 a(href = getLogUrl(c, p), class = "fail", "Fail")
+                 a(href = getLogUrl(state, c, p), class = "fail", "Fail")
                ))
   of bSuccess:
     result.add(htmlgen.`div`(class = "half indivSuccess", "OK"))
@@ -674,10 +675,10 @@ proc genTestResult(state: PState, c: TCommit, p: TPlatform): string =
                  htmlgen.p("Unknown")))
   of tFail:
     result.add(htmlgen.`div`(class = "half indivFailure", 
-                 a(href = getLogUrl(c, p), class = "fail", "Fail")
+                 a(href = getLogUrl(state, c, p), class = "fail", "Fail")
                ))
   of tSuccess:
-    var testresultsURL = joinUrl(getWebUrl(c, p), "testresults.html")
+    var testresultsURL = joinUrl(getWebUrl(state, c, p), "testresults.html")
     result.add(htmlgen.`div`(class = "half indivSuccess", 
                  a(href = testResultsURL, class = "success", 
                    $(p.passed) & "/" & $(p.total-p.skipped))
@@ -730,7 +731,8 @@ proc findLatestCommit(entries: seq[TEntry],
       
       i.inc()
 
-proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
+proc genDownloadTable(req: TRequest, entries: seq[TEntry],
+                      platforms: seq[string]): string =
   result = ""
   
   var OSes: seq[string] = @[]
@@ -778,8 +780,9 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
           var attrs: seq[tuple[name, content: string]] = @[]
           attrs.add(("class", if latest: "link green" else: "link orange"))
           if pName in entry.p:
-            var weburl = joinUrl(websiteUrl, "commits/$2/nimrod_$1.zip" %
-                            [entry.c.hash[0..11], entry.p[pName].platform])
+            var weburl = req.makeUri("commits/$2/nimrod_$1.zip" %
+                            [entry.c.hash[0..11], entry.p[pName].platform],
+                            absolute = false)
             table[2+cpuI].addCol(a(entry.c.hash[0..11], href = weburl), attrs=attrs)
             columnAdded = true
 
@@ -802,7 +805,8 @@ proc genDownloadTable(entries: seq[TEntry], platforms: seq[string]): string =
   
   result = table.toHtml("id=\"downloads\"")
 
-proc genTopButtons(platforms: TTable[string, TStatus], entries: seq[TEntry]): string =
+proc genTopButtons(req: TRequest, platforms: TTable[string, TStatus],
+                   entries: seq[TEntry]): string =
   # Generate buttons for C sources and docs.
   # Find the latest C sources.
   result = ""
@@ -813,9 +817,8 @@ proc genTopButtons(platforms: TTable[string, TStatus], entries: seq[TEntry]): st
   for c, p in items(entries):
     for platf in p:
       if platf.csources:
-        csourceWeb = joinUrl(websiteUrl,
-                            "commits/$2/nimrod_$1_csources.zip" %
-                            [c.hash[0..11], platf.platform])
+        csourceWeb = req.makeUri("commits/$2/nimrod_$1_csources.zip" %
+                            [c.hash[0..11], platf.platform], absolute=false)
         csourceFound = true
         csourceLatest = i == 0
         break
@@ -834,7 +837,7 @@ proc genTopButtons(platforms: TTable[string, TStatus], entries: seq[TEntry]): st
   var docClass = "left " & (if docgenSuccess: "active" else: "warning") &
                  " button"
   
-  var docWeb     = joinUrl(websiteURL, "docs/lib.html")
+  var docWeb     = req.makeUri("docs/lib.html", absolute=false)
   
   result.add(a(span("", class = "download") & 
                 span("C Sources", class = "platform"),
@@ -875,7 +878,7 @@ proc genSpecificBuilderHTML(state: PState,
   var builderModule: TModule
   if findBuilderModule(state, platfName, builderModule):
     let job = state.platforms[platfName]
-    let lag = int(builderModule.ping / 1000.0)
+    let lag = int(builderModule.ping * 1000.0)
     var lagTxt = ""
     if lag == 0:
       lagTxt = "<0ms"
