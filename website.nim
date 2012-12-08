@@ -324,7 +324,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         if platf.branch == "master":
           important = true
         state.IRCAnnounce("Testing failed for: " & m.platform & " (" &
-                    json["detail"].str, important)
+                    json["detail"].str & ")", important)
     of jDocGen:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "docs", "t")

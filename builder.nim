@@ -344,7 +344,6 @@ proc runProcess(env: PStringTable = nil, workDir, execFile: string,
   while true:
     line = ""
     if pStdout.readLine(line) and line != "":
-      echo("[Thread] Process Line: ", line)
       hubSendProcessLine(line)
     if hasProcessTerminated(process, exitCode):
       break
@@ -467,17 +466,24 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
     else: assert false
   
   var ftpc = AsyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
+  echo("Connecting to ftp://" & user & "@" & ftpAddr & ":" & $ftpPort)
   ftpc.connect()
   assert ftpc.pwd().startsWith("/home" / user) # /home/nimrod
   ftpc.cd(workDir)
-  
+  echo("FTP: Work dir is " & workDir)
+  echo("FTP: Creating " & uploadDir)
   try: ftpc.createDir(uploadDir, true)
   except EInvalidReply: nil # TODO: Check properly whether the folder exists
   
   ftpc.chmod(uploadDir, webFP)
+  ftpc.cd(uploadDir)
+  echo("FTP: Work dir is " & ftpc.pwd())
   var disp = newDispatcher()
   disp.register(ftpc)
+  echo("FTP: Uploading ", file, " to ", destFile)
   ftpc.store(file, destFile, async = true)
+  while true:
+    if not disp.poll(5000): break
 
 proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   ## Runs the tester, returns the full absolute path to where the tests
@@ -513,7 +519,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
     if cfg.hubAddr != "127.0.0.1":
       uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser, 
                  cfg.ftpPass,
-                 cfg.ftpUploadDir / "commits", commitPath,
+                 cfg.ftpUploadDir / "commits", cfg.platform, # TODO: Make sure user doesn't add the "commits" in the config.
                  buildZipFilePath,
                  buildZipFilePath.extractFilename)
 
@@ -630,7 +636,6 @@ proc pollBuild(state: PState) =
       of ProcessExit:
         state.buildJob.p = nil
       of HubMsg:
-        echo("[pollBuild] hubMsg: ", msg.msg)
         state.sock.send(msg.msg)
       of BuildEnd:
         state.building = false
