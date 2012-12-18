@@ -250,7 +250,8 @@ proc writeBuildSpecificLogs(state: PState, platf: string, line: string) =
 
 proc checkBuilderQueue(state: PState, platform: string) =
   ## Checks builder queue and sends a message to the builder immediatelly.
-  if state.buildQueue.hasKey(platform):
+  if state.buildQueue.hasKey(platform) and
+      state.buildQueue[platform].len != 0:
     let cm = state.buildQueue.mget(platform).pop()
     let json = %{"payload": cm.payload["payload"], "rebuild": %false}
     var builder: TModule
