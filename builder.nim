@@ -563,7 +563,7 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       # Zip up the csources.
       # -- Move the build directory to the zip location
       let csourcesPath = commitPath & "_csources"
-      var csourcesZipFile = (commitPath & "_csources").addFileExt("zip")
+      var csourcesZipFile = ("nimrod_" & commitPath & "_csources").addFileExt("zip")
       dMoveDir(cfg.nimLoc / "build", cfg.zipLoc / csourcesPath / "build")
       # -- Move `build_old` to where it was previously.
       dMoveDir(cfg.nimLoc / "build_old", cfg.nimLoc / "build")
@@ -588,7 +588,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       # -- Remove the directory which was zipped
       dRemoveDir(cfg.zipLoc / csourcesPath)
       # -- Move the .zip file
-      dMoveFile(cfg.zipLoc / csourcesZipFile, cfg.websiteLoc / "commits" / csourcesZipFile)
+      dMoveFile(cfg.zipLoc / csourcesZipFile,
+                cfg.websiteLoc / "commits" / csourcesZipFile)
       
       hubSendBuildSuccess()
 
