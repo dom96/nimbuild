@@ -2,6 +2,10 @@ body {
   font-size: medium;
 }
 
+body,html {
+  height: 100%;
+}
+
 a {
   /* text-decoration: none; */
   /* That looks interesting */
@@ -202,7 +206,7 @@ div#footer {
   color: #ffffff;
   text-align: center;
   height: 18pt;
-  padding: 1.5pt 5px;
+  padding-top: 3.5pt;
 }
 
 #footerPush {
