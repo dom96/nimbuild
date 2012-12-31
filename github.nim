@@ -47,6 +47,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     var obj = newJObject()
     obj["name"] = newJString("github")
     obj["platform"] = newJString(state.platform)
+    obj["version"] = %"1"
     state.sock.send($obj & "\c\L")
     # Wait for reply.
     var line = ""

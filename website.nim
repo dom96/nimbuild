@@ -150,8 +150,8 @@ proc mGetBuilderModule(state: PState, platf: string): var TModule =
       return state.modules[i]
   raise newException(EInvalidValue, "Platform could not be found.")
 
-proc parseGreeting(state: PState, m: var TModule, line: string): bool =
-  # { "name": "modulename" }
+proc parseGreeting(state: PState, m: var TModule, line: string, errMsg: var string): bool =
+  # { "name": "modulename", "version": "1" }
   # optional params: settings
   var json: PJsonNode
   try:
@@ -167,10 +167,20 @@ proc parseGreeting(state: PState, m: var TModule, line: string): bool =
         fail = false
       else:
         echo("Got incorrect password: ", json["pass"].str)
+        errMsg = "Invalid password"
 
     if fail: return false
   
-  if not (json.existsKey("name") and json.existsKey("platform")): return false
+  if not (json.existsKey("name") and json.existsKey("platform")):
+    errMsg = "Invalid greeting."
+    return false
+  if not json.existsKey("version"):
+    errMsg = "Required version field missing."
+    return false
+  else:
+    if json["version"].str != "1":
+      errMsg = "Invalid version."
+      return false
   
   m.name = json["name"].str
   m.platform = json["platform"].str
@@ -182,6 +192,7 @@ proc parseGreeting(state: PState, m: var TModule, line: string): bool =
       state.platforms[m.platform] = initStatus()
     else:
       echo("Platform(", m.platform, ") already exists.")
+      errMsg = "This platform already exists."
       return False
   
   m.status = MSConnected
@@ -536,11 +547,12 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
           continue
         case m.status
         of MSConnecting:
-          if state.parseGreeting(m, line):
-            m.sock.send("{ \"reply\": \"OK\" }\c\L")
+          var errMsg = ""
+          if state.parseGreeting(m, line, errMsg):
+            m.sock.send($(%{ "reply": %"OK" }) & "\c\L")
             echo(uniqueMName(m), " accepted.")
           else:
-            m.sock.send("{ \"reply\": \"FAIL\" }\c\L")
+            m.sock.send($(%{ "reply": %"FAIL", "reason": %errMsg }) & "\c\L")
             echo("Rejected ", uniqueMName(m))
             disconnect.add(m)
         of MSConnected: 
@@ -551,7 +563,7 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
 
           state.parseMessage(i, line)
       else:
-        echo(OSErrorMsg())
+        echo("recvLine failed: " & OSErrorMsg())
         ## Assume the module disconnected
         #disconnect.add(m)
   

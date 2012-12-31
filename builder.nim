@@ -585,6 +585,11 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
         echo("Not implemented")
         doAssert(false)
       run(cfg.zipLoc, findexe("zip"), "-r", csourcesZipFile, csourcesPath)
+      # -- Remove the directory which was zipped
+      dRemoveDir(cfg.zipLoc / csourcesPath)
+      # -- Move the .zip file
+      dMoveFile(cfg.zipLoc / csourcesZipFile, cfg.websiteLoc / "commits" / csourcesZipFile)
+      
       hubSendBuildSuccess()
 
 proc stopBuild(state: PState) =
@@ -652,6 +657,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     var obj = newJObject()
     obj["name"] = newJString("builder")
     obj["platform"] = newJString(state.cfg.platform)
+    obj["version"] = %"1"
     if state.cfg.hubPass != "": obj["pass"] = newJString(state.cfg.hubPass)
     state.sock.send($obj & "\c\L")
     # Wait for reply.

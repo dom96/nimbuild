@@ -178,6 +178,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     var obj = newJObject()
     obj["name"] = newJString("irc")
     obj["platform"] = newJString("?")
+    obj["version"] = %"1"
     state.sock.send($obj & "\c\L")
 
     # Wait for reply.
