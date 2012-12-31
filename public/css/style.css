@@ -2,6 +2,17 @@ body {
   font-size: medium;
 }
 
+a {
+  /* text-decoration: none; */
+  /* That looks interesting */
+}
+
+#wrapper {
+  height: auto !important;
+  margin: 0 auto -21pt; /* For footer */
+  min-height: 100%;
+}
+
 div#header {
   font-size: 2em;
   background-color: #3d3d3d;
@@ -190,6 +201,20 @@ div#footer {
   background: -o-linear-gradient(top, #5D5D5D, #4D4D4D);
   color: #ffffff;
   text-align: center;
+  height: 18pt;
+  padding: 1.5pt 5px;
+}
+
+#footerPush {
+  height: 21pt;
+}
+
+div#footer a, div#footer a:visited, div#footer a:link {
+  color: #ffffff;
+}
+
+div#footer a:hover {
+  text-decoration: none;
 }
 
 /* The new platform build result divs */

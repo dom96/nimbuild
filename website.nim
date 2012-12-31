@@ -606,7 +606,7 @@ proc getWebUrl(state: PState, c: TCommit, p: TPlatform): string =
                              absolute = false)
 
 proc getLogUrl(state: PState, c: TCommit, p: TPlatform): string =
-  result = joinUrl(getWebUrl(state, c, p), "log.txt")
+  result = joinUrl(getWebUrl(state, c, p), "logs.txt")
 
 proc isBuilding(platforms: TTable[string, TStatus], p: string, c: TCommit): bool =
   return platforms[p].isInProgress and platforms[p].hash == c.hash
@@ -857,6 +857,9 @@ proc genUserUrl(user: string): string =
 proc genSpecificBranchHTML(state: PState, branch: string,
     info: tuple[c: TCommit, buildInfo: TPlatform]): string =
   let (commit, build) = (info.c, info.buildInfo)
+  const month = 2_628_000
+  let dateClass = "date " & 
+      (if (commit.date - getTime()) > month: "outdated" else: "") 
   result = 
     htmlgen.`div`(class = "lastResults",
         htmlgen.`div`(class = "branch " & (if branch == "master": "master" else: ""),
@@ -865,10 +868,11 @@ proc genSpecificBranchHTML(state: PState, branch: string,
         state.genBuildResult(commit, build),
         state.genTestResult(commit, build),
         p(a(href = genCommitUrl(commit.hash),commit.hash[0..11]), " by ",
-          a(href=genUserUrl(commit.username), commit.username)
+          a(href=genUserUrl(commit.username), commit.username), " (",
+          a(href=getLogUrl(state, commit, build), "logs"), ")"
          ),
         p(class = "commitMsg", commit.commitMsg),
-        p($(commit.date))
+        p(class = dateClass, $(commit.date))
       )
 
 proc genSpecificBuilderHTML(state: PState,
@@ -916,6 +920,10 @@ proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): 
           string, 
           TTable[string, tuple[c: TCommit, buildInfo: TPlatform]]]()
 
+  # TODO: Move to MongoDB and a better more efficient db layout.
+  # the following code is extremely slow and complicated.
+
+  # The following sorts the commits into a list more suited to the new layout.
   for entry in items(entr):
     let (commit, builds) = (entry.c, entry.p)
     for build in builds:
