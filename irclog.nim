@@ -89,17 +89,17 @@ proc renderHtml*(logger: PLogger, index = false): string =
       )
     )
 
-proc renderJSONItems(logger: PLogger): PJsonNode =
+discard """proc renderJSONItems(logger: PLogger): PJsonNode =
   result = newJArray()
   for i in logger.items:
     result.add(%{ "cmd": %($i.cmd),
-                  "msg": %i.msg.params[i.msg.params.len-1] }
+                  "msg": %i.msg.params[i.msg.params.len-1] })
 
 proc renderJSON(logger: PLogger): string =
   let json = %{ "startTime": %logger.startTime.TimeInfoToTime.int,
                 "savedAt" :  %epochTime(),
                 "logs": renderJSONItems(logger)}
-  result = json.pretty()
+  result = json.pretty()"""
 
 proc save(logger: PLogger, filename: string, index = false) =
   writeFile(filename, renderHtml(logger, index))
@@ -118,7 +118,7 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?
     logger.items.add((getTime(), msg))
-    logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.json'"))
+    logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
   else: nil
 
 proc log*(logger: PLogger, nick, msg, chan: string) =
