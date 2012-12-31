@@ -118,6 +118,7 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?
     logger.items.add((getTime(), msg))
+    logger.save(logger.logFilepath / "index.html", true)
     logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
   else: nil
 
