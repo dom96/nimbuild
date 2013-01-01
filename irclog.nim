@@ -108,9 +108,9 @@ proc save(logger: PLogger, filename: string, index = false) =
   #  writeFile(filename.changeFileExt("json"), $$logger)
 
 proc log*(logger: PLogger, msg: TIRCEvent) =
-  if msg.origin != "#nimrod": return
+  if msg.origin != "#nimrod" and msg.cmd notin {MQuit, MNick}: return
   if getTime().getGMTime().yearday != logger.startTime.yearday:
-    # Time to cycle to next day.
+    # It's time to cycle to next day.
     # Reset logger.
     logger.startTime = getTime().getGMTime()
     logger.items = @[]
