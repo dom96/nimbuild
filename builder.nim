@@ -39,6 +39,7 @@ type
     ftpUploadDir: string
   
     requestNewest: bool
+    deleteOutgoing: bool
 
   TState = object of TObject
     dispatcher: PDispatcher
@@ -137,6 +138,9 @@ proc parseConfig(state: PState, path: string) =
           state.cfg.ftpUploadDir = n.value
         of "requestnewest":
           state.cfg.requestNewest =
+            if normalize(n.value) == "true": true else: false
+        of "deleteoutgoing":
+          state.cfg.deleteOutgoing =
             if normalize(n.value) == "true": true else: false
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
@@ -280,6 +284,11 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
 
+proc clearOutgoing(websitePath, platform: string) =
+  echo("Clearing outgoing folder...")
+  dRemoveDir(websitePath / "commits" / platform)
+  dCreateDir(websitePath / "commits" / platform)
+
 # TODO: Make this a template?
 proc tally3(obj: PJsonNode, name: string,
             total, passed, skipped: var biggestInt) =
@@ -306,12 +315,14 @@ proc fileInModified(json: PJsonNode, file: string): bool =
       for f in items(commit["modified"].elems):
         if f.str == file: return true
 
-template buildTmpl(body: stmt): stmt =
+template buildTmpl(info: TBuildData, body: stmt): stmt =
   try:
     body
   except EBuildEnd:
     hubSendBuildFail(getCurrentExceptionMsg())
   hubSendBuildEnd()
+  if info.cfg.deleteOutgoing:
+    clearOutgoing(info.cfg.websiteLoc, info.cfg.platform)
 
 proc hasBuildTerminated(): bool =
   ## Checks whether the main thread asked for the build to be terminated.
@@ -498,7 +509,7 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
 
 proc bootstrapTmpl(info: TBuildData) {.thread.} =
   ## Template for a full bootstrap.
-  buildTmpl:
+  buildTmpl(info):
     let cfg = info.cfg
     let commitHash = info.payload["after"].str
     let commitBranch = info.payload["ref"].str[11 .. -1]
