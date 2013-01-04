@@ -573,8 +573,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
 
       # Zip up the csources.
       # -- Move the build directory to the zip location
-      let csourcesPath = commitPath & "_csources"
-      var csourcesZipFile = ("nimrod_" & commitPath & "_csources").addFileExt("zip")
+      let csourcesPath = makeZipPath(cfg.platform, commitHash) & "_csources"
+      var csourcesZipFile = csourcesPath.addFileExt("zip")
       dMoveDir(cfg.nimLoc / "build", cfg.zipLoc / csourcesPath / "build")
       # -- Move `build_old` to where it was previously.
       dMoveDir(cfg.nimLoc / "build_old", cfg.nimLoc / "build")
