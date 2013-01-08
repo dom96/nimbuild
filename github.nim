@@ -111,6 +111,10 @@ proc sendBuild(sock: TSocket, payload: PJsonNode) =
   obj["payload"] = payload
   sock.send($obj & "\c\L")
 
+proc isAuthorized(hostname: string): bool =
+  return hostname.endswith("github.com") or
+         hostname == "50-57-231-61.static.cloud-ips.com"
+
 when isMainModule:
   var state = open()
   
@@ -122,7 +126,8 @@ when isMainModule:
     except:
       hostname = getCurrentExceptionMsg()
     echo("       ", hostname)
-    cond hostname.endswith("github.com")
+    let authorized = isAuthorized(hostname)
+    cond authorized
     let payload = @"payload"
     var json = parseJSON(payload)
     sendBuild(state.sock, json)
