@@ -264,9 +264,11 @@ proc checkBuilderQueue(state: PState, platform: string) =
   if state.buildQueue.hasKey(platform) and
       state.buildQueue[platform].len != 0:
     let cm = state.buildQueue.mget(platform).pop()
+    state.database.addPlatform(cm.payload["payload"]["after"].str,
+                  platform)
     let json = %{"payload": cm.payload["payload"], "rebuild": %false}
     var builder: TModule
-    assert findBuilderModule(state, platform, builder)
+    doAssert findBuilderModule(state, platform, builder)
     builder.sock.send($json & "\c\L")
 
 # TODO: Instead of using assertions provide a function which checks whether the
@@ -423,7 +425,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               toBuildQueue = true
             
             if not toBuildQueue:
-              # Send immediatelly.
+              # Send immediately.
               state.database.addPlatform(json["payload"]["after"].str,
                   module.platform)
              
