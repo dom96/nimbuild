@@ -721,7 +721,10 @@ proc open(configPath: string): PState =
   cres.dispatcher = newDispatcher()
   
   # Connect to the hub
-  cres.hubConnect(false)
+  try: cres.hubConnect(false)
+  except EOS:
+    echo("Could not connect to hub: " & getCurrentExceptionMsg())
+    quit(QuitFailure)
 
   # Open log file
   cres.logFile = open(cres.cfg.logLoc, fmAppend)
@@ -777,20 +780,25 @@ proc hubDisconnect(state: PState) =
 
 proc reconnect(state: PState) =
   state.hubDisconnect()
+  echo("Waiting 5 seconds before reconnecting...")
+  sleep(5000)
   try: state.hubConnect(true)
   except EOS:
-    echo(getCurrentExceptionMsg())
+    echo("Could not reconnect: ", getCurrentExceptionMsg())
+    reconnect(state)
 
 proc handleHubMessage(s: PAsyncSocket, state: PState) =
-  var line = ""
-  if state.sock.recvLine(line):
-    if line != "":
-      state.parseMessage(line)
-    else:
-      echo("Disconnected from hub: ", OSErrorMsg())
-      reconnect(state)
-  else:
-    echo(OSErrorMsg())
+  try:
+    var line = ""
+    if state.sock.recvLine(line):
+      if line != "":
+        state.parseMessage(line)
+      else:
+        echo("Disconnected from hub (recvLine returned \"\"): ", OSErrorMsg())
+        reconnect(state)
+  except EOS:
+    echo("Disconnected from hub: ", getCurrentExceptionMsg())
+    reconnect(state)
 
 proc checkTimeout(state: PState) =
   const timeoutSeconds = 110.0 # If no message received in that long, ping the server.
@@ -805,8 +813,7 @@ proc checkTimeout(state: PState) =
         try:
           state.sock.send($jsonObject & "\c\L")
         except EOS:
-          echo(OSErrorMsg())
-          echo("Disconnected from server due to ^^")
+          echo("Disconnected from server due to: ", getCurrentExceptionMsg())
           reconnect(state)
           return
           

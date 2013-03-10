@@ -543,8 +543,14 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
     template m: expr = state.modules[i]
     if m.sock == s:
       var line = ""
-      if recvLine(s, line):
-        if line == "": 
+      var ret = false
+      try:
+        ret = recvLine(s, line)
+      except EOS:
+        disconnect.add(m)
+        continue
+      if ret:
+        if line == "":
           disconnect.add(m)
           continue
         case m.status
@@ -564,10 +570,6 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
           state.modules[i].lastPong = epochTime()
 
           state.parseMessage(i, line)
-      else:
-        echo("recvLine failed: " & OSErrorMsg())
-        ## Assume the module disconnected
-        #disconnect.add(m)
   
   # Remove disconnected modules
   for m in items(disconnect):

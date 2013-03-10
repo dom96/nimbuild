@@ -1,4 +1,7 @@
 * Move from redis to mongodb or sqlite(?)
+  * Convert redis data to suit the current website layout.
+* Hub should only have the FTP info, builders should query it for this data.
+* Download table is broken.
 * Keep only the latest version of Nimrod for download.
 * grep "TODO"
 * Fix nimbot
