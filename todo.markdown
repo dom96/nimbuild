@@ -17,3 +17,7 @@
   etc.
   * If the newest build only built one file, the website should show the last known test results (perhaps with a warning).
     * DB needs to know about this.
+
+* Inspect diff.
+  * If all lines that were changed start with (\s+)## then no need to bootstrap,
+    just ened to rebuild the docs.

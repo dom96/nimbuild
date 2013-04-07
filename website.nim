@@ -545,7 +545,7 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
       var line = ""
       var ret = false
       try:
-        ret = recvLine(s, line)
+        ret = readLine(s, line)
       except EOS:
         disconnect.add(m)
         continue

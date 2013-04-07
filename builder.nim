@@ -471,6 +471,7 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
   proc handleEvent(f: PAsyncFTPClient, ev: TFTPEvent) =
     case ev.typ
     of EvStore:
+      f.chmod(destFile, webFP)
       f.close()
     of EvTransferProgress:
       hubSendFTPUploadSpeed(ev.speed.float / 1024.0)
