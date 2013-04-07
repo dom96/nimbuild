@@ -360,7 +360,6 @@ proc runProcess(env: PStringTable = nil, workDir, execFile: string,
       break
   result = exitCode == QuitSuccess 
   echo("! " & execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
-  pStdout.close()
   process.close()
 
 proc changeNimrodInPATH(bindir: string): string =
