@@ -388,7 +388,8 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   let commitHash = payload["after"].str
 
   run(nimLoc, findExe("git"), "checkout", ".")
-  run(nimLoc, findExe("git"), "pull")
+  run(nimLoc, findExe("git"), "checkout", "master") # Restore to master, so that git pull works.
+  run(nimLoc, findExe("git"), "pull") # General pull.
   run(nimLoc, findExe("git"), "checkout", branch)
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
