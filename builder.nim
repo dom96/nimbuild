@@ -388,9 +388,9 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   let commitHash = payload["after"].str
 
   run(nimLoc, findExe("git"), "checkout", ".")
+  run(nimLoc, findExe("git"), "pull")
   run(nimLoc, findExe("git"), "checkout", branch)
   # TODO: Capture changed files from output?
-  run(nimLoc, findExe("git"), "pull")
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
 proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
