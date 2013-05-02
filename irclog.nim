@@ -73,6 +73,7 @@ proc renderHtml*(logger: PLogger, index = false): string =
   result = 
     html(
       head(title("#nimrod logs for " & logger.startTime.format("dd'-'MM'-'yyyy")),
+           meta(content="text/html; charset=UTF-8", `http-equiv` = "Content-Type"),
            link(rel="stylesheet", href="/css/boilerplate.css"),
            link(rel="stylesheet", href="/css/log.css")
       ),
