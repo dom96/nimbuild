@@ -587,8 +587,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       # -- License
       dCopyFile(cfg.nimLoc / "copying.txt",
                 cfg.zipLoc / csourcesPath / "copying.txt")
-      dCopyFile(cfg.nimLoc / "gpl.html",
-                cfg.zipLoc / csourcesPath / "gpl.html")
+      #dCopyFile(cfg.nimLoc / "gpl.html",
+      #          cfg.zipLoc / csourcesPath / "gpl.html")
       writeFile(cfg.zipLoc / csourcesPath / "readme2.txt", buildReadme)
       # -- ZIP!
       if existsFile(cfg.zipLoc / csourcesZipFile):
