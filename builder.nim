@@ -279,7 +279,7 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyFile(nimLoc / nimBin, dest / nimBin)
   dCopyFile(nimLoc / "readme.txt", dest / "readme.txt")
   dCopyFile(nimLoc / "copying.txt", dest / "copying.txt")
-  dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
+  #dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
   writeFile(dest / "readme2.txt", buildReadme)
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
