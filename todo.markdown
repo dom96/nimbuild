@@ -21,3 +21,10 @@
 * Inspect diff.
   * If all lines that were changed start with (\s+)## then no need to bootstrap,
     just ened to rebuild the docs.
+
+* Change the left side color of each platform box to show the current builder status.
+  * Pulsates blue when building
+  * Red when disconnected
+  * Blue when connected?
+  
+* .deb gen

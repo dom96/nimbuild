@@ -2,7 +2,7 @@ import os, tables, hashes
 # TODO: Rename this module to ``utils``
 type
   TBuilderJob* = enum
-    jBuild, jTest, jDocGen, jCSrcGen
+    jBuild, jTest, jDocGen, jCSrcGen, jInnoSetup
 
   TProgress* = enum
     jUnknown, jFail, jInProgress, jSuccess
@@ -56,6 +56,8 @@ proc `$`*(s: TStatus): string =
       result = "Generating docs"
     of jCSrcGen:
       result = "Generating C Sources"
+    of jInnoSetup:
+      result = "Generating Inno setup file"
   else:
     var job: TBuilderJob
     result = "Unknown"
@@ -81,10 +83,17 @@ proc `$`*(s: TStatus): string =
           result = "C source generation succeeded"
         elif s.jobs[job] == jFail:
           result = "C source generation failed"
-      
+      of jInnoSetup:
+        if s.jobs[job] == jSuccess:
+          result = "Inno setup generation succeeded"
+        elif s.jobs[job] == jFail:
+          result = "Inno setup generation failed"
   
 proc makeCommitPath*(platform, hash: string): string =
   return platform / hash.substr(0, 11)  # 11 Chars.
 
 proc makeZipPath*(platform, hash: string): string =
   return platform / "nimrod_" & hash.substr(0, 11)
+
+proc makeInnoSetupPath*(hash: string): string =
+  return ("nimrod_" & hash.substr(0, 11)) & ".exe"

@@ -28,6 +28,7 @@ type
     docgen: bool ## Determines whether to generate docs.
     csourceGen: bool ## Determines whether to generate csources.
     csourceExtraBuildArgs: string
+    innoSetupGen: bool
     platform: string
     hubAddr: string
     hubPort: int
@@ -118,6 +119,8 @@ proc parseConfig(state: PState, path: string) =
           state.cfg.docgen = if normalize(n.value) == "true": true else: false
         of "csourcegen":
           state.cfg.csourceGen = if normalize(n.value) == "true": true else: false
+        of "innogen":
+          state.cfg.innoSetupGen = if normalize(n.value) == "true": true else: false
         of "csourceextrabuildargs":
           state.cfg.csourceExtraBuildArgs = n.value
         of "hubaddr":
@@ -560,6 +563,14 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       dCopyDir(cfg.nimLoc / "web" / "upload", cfg.websiteLoc / "docs")
       
       hubSendBuildSuccess()
+    if cfg.innoSetupGen:
+      # We want docs to be generated for inno setup, so that the setup file
+      # includes them.
+      hubSendJobUpdate(jDocGen)
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "web")
+      hubSendBuildSuccess()
+
 
     # --- Start of csources gen ---
     if cfg.csourceGen:
@@ -603,6 +614,18 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       dMoveFile(cfg.zipLoc / csourcesZipFile,
                 cfg.websiteLoc / "commits" / csourcesZipFile)
       
+      hubSendBuildSuccess()
+
+    # --- Start of inno setup gen ---
+    if cfg.innoSetupGen:
+      hubSendJobUpdate(jInnoSetup)
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "inno", "-d:release")
+      if cfg.hubAddr != "127.0.0.1":
+        uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
+                   cfg.ftpPass, cfg.ftpUploadDir / "commits", cfg.platform,
+                   cfg.nimLoc / "build" / "nimrod_setup.exe",
+                   makeInnoSetupPath(commitHash))
       hubSendBuildSuccess()
 
 proc stopBuild(state: PState) =
