@@ -348,7 +348,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       else:
         state.database.updateProperty(platf.hash, m.platform, "csources", "f")
         state.IRCAnnounce("C Sources gen failed.", true)
-    
+    of jInnoSetup:
+      if result != Success:
+        state.IRCAnnounce("Inno setup gen failed", true)
     if json.existsKey("detail"):
       setResult(state, m.platform, result, json["detail"].str)
     else:
