@@ -1,5 +1,7 @@
 import strtabs, sockets, asyncio, scgi, strutils, os, json,
   osproc, streams, times, parseopt
+  
+import httpclient
 from cgi import URLDecode
 import jester
 import types

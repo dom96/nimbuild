@@ -28,6 +28,7 @@ type
     docgen: bool ## Determines whether to generate docs.
     csourceGen: bool ## Determines whether to generate csources.
     csourceExtraBuildArgs: string
+    innoSetupGen: bool
     platform: string
     hubAddr: string
     hubPort: int
@@ -118,6 +119,8 @@ proc parseConfig(state: PState, path: string) =
           state.cfg.docgen = if normalize(n.value) == "true": true else: false
         of "csourcegen":
           state.cfg.csourceGen = if normalize(n.value) == "true": true else: false
+        of "innogen":
+          state.cfg.innoSetupGen = if normalize(n.value) == "true": true else: false
         of "csourceextrabuildargs":
           state.cfg.csourceExtraBuildArgs = n.value
         of "hubaddr":
@@ -271,7 +274,7 @@ proc dRemoveDir(s: string) =
 
 proc dRemoveFile(s: string) =
   echo("[INFO] Removing file ", s)
-  removeDir(s)
+  removeFile(s)
 
 proc copyForArchive(nimLoc, dest: string) =
   dCreateDir(dest / "bin")
@@ -279,7 +282,7 @@ proc copyForArchive(nimLoc, dest: string) =
   dCopyFile(nimLoc / nimBin, dest / nimBin)
   dCopyFile(nimLoc / "readme.txt", dest / "readme.txt")
   dCopyFile(nimLoc / "copying.txt", dest / "copying.txt")
-  dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
+  #dCopyFile(nimLoc / "gpl.html", dest / "gpl.html")
   writeFile(dest / "readme2.txt", buildReadme)
   dCopyDir(nimLoc / "config", dest / "config")
   dCopyDir(nimLoc / "lib", dest / "lib")
@@ -394,6 +397,8 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
+proc exe(f: string): string = return addFileExt(f, ExeExt)
+
 proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   ## Set of steps to bootstrap Nimrod. In debug and release mode.
   ## Does not perform any git actions!
@@ -402,32 +407,34 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   # This is so that 'koch clean' can be used.
   # if the nimrod binary does not exist then it's quite unlikely that
   # koch won't be compiled /and/ we need to run koch clean.
-  if ((not existsFile(nimLoc / "koch")) or 
+  if ((not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim")) and
-      existsFile(nimLoc / "bin" / "nimrod"):
-    run(nimLoc, "bin" / "nimrod", "c", "koch.nim")
+      existsFile(nimLoc / "bin" / "nimrod".exe):
+    run(nimLoc, "bin" / "nimrod".exe, "c", "koch.nim")
 
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
   if fileInModified(payload, "build/csources.zip") or 
-       not existsFile("bin" / "nimrod"):
-    if existsFile(nimLoc / "koch"):
-      run(nimLoc, "koch", "clean")
+       not existsFile("bin" / "nimrod".exe):
+    if existsFile(nimLoc / "koch".exe):
+      run(nimLoc, "koch".exe, "clean")
     # Unzip C Sources
     when defined(windows):
-      run(nimLoc / "build", findExe("7za"), "e", "csources.zip")
+      run(nimLoc / "build", findExe("7za"), "x", "csources.zip")
+      # build.bat
+      run(nimLoc, getEnv("COMSPEC"), "/c", "build.bat", csourceExtraBuildArgs)
     else:
       run(nimLoc / "build", findExe("unzip"), "csources.zip")
-    # ./build.sh
-    run(nimLoc, findExe("sh"), "build.sh", csourceExtraBuildArgs)
+      # ./build.sh
+      run(nimLoc, findExe("sh"), "build.sh", csourceExtraBuildArgs)
   
-  if (not existsFile(nimLoc / "koch")) or 
+  if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
-    run(nimLoc, "bin" / "nimrod", "c", "koch.nim")
+    run(nimLoc, "bin" / "nimrod".exe, "c", "koch.nim")
   
   # Bootstrap!
-  run(nimLoc, "koch", "boot")
-  run(nimLoc, "koch", "boot", "-d:release")
+  run(nimLoc, "koch".exe, "boot")
+  run(nimLoc, "koch".exe, "boot", "-d:release")
 
 proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
                    nimLoc, rootZipLoc: string): string =
@@ -435,7 +442,7 @@ proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
   ## Returns the full absolute path to where the zipped file resides.
   
   # Set +x on nimrod binary
-  setFilePermissions(nimLoc / "bin" / "nimrod", webFP)
+  setFilePermissions(nimLoc / "bin" / "nimrod".exe, webFP)
   let zipPath = rootZipLoc / commitPath
   let zipFile = addFileExt(commitPath, "zip")
 
@@ -480,7 +487,7 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
   var ftpc = AsyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
   echo("Connecting to ftp://" & user & "@" & ftpAddr & ":" & $ftpPort)
   ftpc.connect()
-  assert ftpc.pwd().startsWith("/home" / user) # /home/nimrod
+  assert ftpc.pwd().startsWith("/home/" & user) # /home/nimrod
   ftpc.cd(workDir)
   echo("FTP: Work dir is " & workDir)
   echo("FTP: Creating " & uploadDir)
@@ -501,7 +508,7 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   ## Runs the tester, returns the full absolute path to where the tests
   ## have been saved.
   result = websiteLoc / "commits" / commitPath / "testresults.html"
-  run(nimLoc, "koch", "tests")
+  run(nimLoc, "koch".exe, "tests")
   # Copy the testresults.html file.
   dCreateDir(websiteLoc / "commits" / commitPath)
   setFilePermissions(websiteLoc / "commits" / commitPath,
@@ -560,6 +567,14 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       dCopyDir(cfg.nimLoc / "web" / "upload", cfg.websiteLoc / "docs")
       
       hubSendBuildSuccess()
+    if cfg.innoSetupGen:
+      # We want docs to be generated for inno setup, so that the setup file
+      # includes them.
+      hubSendJobUpdate(jDocGen)
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "web")
+      hubSendBuildSuccess()
+
 
     # --- Start of csources gen ---
     if cfg.csourceGen:
@@ -587,8 +602,8 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       # -- License
       dCopyFile(cfg.nimLoc / "copying.txt",
                 cfg.zipLoc / csourcesPath / "copying.txt")
-      dCopyFile(cfg.nimLoc / "gpl.html",
-                cfg.zipLoc / csourcesPath / "gpl.html")
+      #dCopyFile(cfg.nimLoc / "gpl.html",
+      #          cfg.zipLoc / csourcesPath / "gpl.html")
       writeFile(cfg.zipLoc / csourcesPath / "readme2.txt", buildReadme)
       # -- ZIP!
       if existsFile(cfg.zipLoc / csourcesZipFile):
@@ -603,6 +618,18 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       dMoveFile(cfg.zipLoc / csourcesZipFile,
                 cfg.websiteLoc / "commits" / csourcesZipFile)
       
+      hubSendBuildSuccess()
+
+    # --- Start of inno setup gen ---
+    if cfg.innoSetupGen:
+      hubSendJobUpdate(jInnoSetup)
+      run({"PATH": changeNimrodInPATH(cfg.nimLoc / "bin")}.newStringTable(),
+          cfg.nimLoc, "koch", "inno", "-d:release")
+      if cfg.hubAddr != "127.0.0.1":
+        uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
+                   cfg.ftpPass, cfg.ftpUploadDir / "commits", cfg.platform,
+                   cfg.nimLoc / "build" / "nimrod_setup.exe",
+                   makeInnoSetupPath(commitHash))
       hubSendBuildSuccess()
 
 proc stopBuild(state: PState) =
