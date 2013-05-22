@@ -391,7 +391,7 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   let commitHash = payload["after"].str
 
   #run(nimLoc, findExe("git"), "checkout", ".")
-  run(nimLoc, findExe("git"), "clean", "-fxd") # Clean all untracked files
+  run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
   run(nimLoc, findExe("git"), "checkout", "master") # Restore to master, so that git pull works.
   run(nimLoc, findExe("git"), "pull") # General pull.
   run(nimLoc, findExe("git"), "checkout", branch)
@@ -419,17 +419,15 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
        not existsFile("bin" / "nimrod".exe):
     if existsFile(nimLoc / "koch".exe):
       run(nimLoc, "koch".exe, "clean")
-      # TODO: This is now dead, will never be called because 'git clean' will
-      # always remove untracked files.
     # Unzip C Sources
     when defined(windows):
       run(nimLoc / "build", findExe("7za"), "x", "csources.zip")
       # build.bat
-      run(nimLoc, getEnv("COMSPEC"), "/c", "build.bat", csourceExtraBuildArgs)
+      run(nimLoc, getEnv("COMSPEC"), "/c", "build" / "build.bat", csourceExtraBuildArgs)
     else:
       run(nimLoc / "build", findExe("unzip"), "csources.zip")
       # ./build.sh
-      run(nimLoc, findExe("sh"), "build.sh", csourceExtraBuildArgs)
+      run(nimLoc, findExe("sh"), "build" / "build.sh", csourceExtraBuildArgs)
   
   if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
