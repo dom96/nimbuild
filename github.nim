@@ -75,7 +75,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     # Wait for reply.
     var line = ""
     sleep(1500)
-    if state.sock.recvLine(line):
+    if state.sock.readLine(line):
       assert(line != "")
       doAssert parseReply(line, "OK")
       echo("The hub accepted me!")
@@ -94,8 +94,7 @@ proc handleMessage(state: PState, line: string) =
 
 proc handleModuleMessage(s: PAsyncSocket, state: PState) =
   var line = ""
-  if not state.sock.recvLine(line):
-    echo(OSErrorMsg())
+  if not state.sock.readLine(line): return # Didn't receive a full line.
   if line != "":
     state.handleMessage(line)
   else:
