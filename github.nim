@@ -21,6 +21,9 @@ type
 
     hookIPs: seq[string]
 
+when not defined(ssl):
+  {.error: "Need SSL support to get Github's IPs, compile with -d:ssl.".}
+
 # Command line reading
 proc getCommandArgs(state: PState) =
   for kind, key, value in getOpt():
