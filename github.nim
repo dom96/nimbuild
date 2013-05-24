@@ -23,7 +23,7 @@ type
 
     timeReconnected: float
 
-    subnets: seq[TSubnet]
+    subnets: seq[TSubnet] # TODO: Separate into a TGithubAPI object.
     apiETag: string
     lastAPIAccess: float
 
