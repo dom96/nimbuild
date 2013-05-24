@@ -1,5 +1,5 @@
 import strtabs, sockets, asyncio, scgi, strutils, os, json,
-  osproc, streams, times, parseopt
+  osproc, streams, times, parseopt, parseutils
   
 from cgi import URLDecode
 from httpclient import get # httpclient.post conflicts with jester.post
@@ -7,6 +7,10 @@ import jester
 import types
 
 type
+  TSubnet = object
+    cidr: range[8 .. 32]
+    a, b, c, d: int
+
   PState = ref TState
   TState = object of TObject
     dispatcher: PDispatcher
@@ -19,7 +23,7 @@ type
 
     timeReconnected: float
 
-    hookIPs: seq[string]
+    hookIPs: seq[TSubnet]
 
 when not defined(ssl):
   {.error: "Need SSL support to get Github's IPs, compile with -d:ssl.".}
@@ -43,7 +47,49 @@ proc getCommandArgs(state: PState) =
 
 # Github specific
 
-proc getHookIPs(hookIPs: var seq[string], timeout = 3000) =
+# -- subnets
+
+proc invalidSubnet(msg: string = "Invalid subnet") =
+  raise newException(EInvalidValue, msg)
+
+proc parseSubnet(subnet: string): TSubnet =
+  var i = 0
+  
+  template parsePart(letter: expr, dot: bool) =
+    var j = parseInt(subnet, letter, i)
+    if j <= 0: invalidSubnet()
+    inc(i, j)
+    if dot:
+      if subnet[i] == '.': inc(i)
+      else: invalidSubnet("Invalid subnet, expected '.'.")
+
+  parsePart(result.a, true)
+  parsePart(result.b, true)
+  parsePart(result.c, true)
+  parsePart(result.d, false)
+  # Parse CIDR
+  if subnet[i] != '/': invalidSubnet("Invalid subnet, expected '/'.")
+  inc(i)
+  var cidr = 0
+  let j = parseInt(subnet, cidr, i)
+  if j <= 0: invalidSubnet("Invalid subnet, expected int after '/'.")
+  inc(i, j)
+  if subnet[i] != '\0': invalidSubnet("Invalid subnet, expected \0.")
+  result.cidr = cidr
+
+proc calcSubmask(cidr: range[8 .. 32]): int =
+  for i in 0 .. int(cidr)-1:
+    result = 1 shl (i+(32-cidr)) or result
+
+proc contains(subnet: TSubnet, ip: string): bool =
+  # http://en.wikipedia.org/wiki/Classless_Inter-Domain_Routing#CIDR_blocks
+  let submask = (not calcSubmask(subnet.cidr)) and 0xFFFFFFFF # Mask to 32bits
+  let subnetIP = subnet.a shl 24 or subnet.b shl 16 or
+                 subnet.c shl 8 or subnet.d
+  let ipmask = parseIP4(ip)
+  result = (subnetIP or submask) == (ipmask or submask)
+
+proc getHookIPs(hookIPs: var seq[TSubnet], timeout = 3000) =
   ## Gets the allowed IP addresses using Github's API.
   except: echo("  [Warning] Getting hookIPs failed: ", getCurrentExceptionMsg())
   let resp = get("https://api.github.com/meta")
@@ -53,9 +99,7 @@ proc getHookIPs(hookIPs: var seq[string], timeout = 3000) =
   
   let j = parseJSON(resp.body)
   if j.existsKey("hooks"):
-    for ip in j["hooks"]:
-      if ip.str.endsWith("/32"):
-        hookIPs.add(ip.str[0 .. -4])
+    for ip in j["hooks"]: hookIPs.add(parseSubnet(ip.str))
 
 # Communication
 
@@ -136,9 +180,17 @@ proc sendBuild(sock: TSocket, payload: PJsonNode) =
   obj["payload"] = payload
   sock.send($obj & "\c\L")
 
-proc isAuthorized(hookIPs: var seq[String], ip: string): bool =
-  getHookIPs(hookIPs)
-  return ip in hookIPs
+proc contains(subnets: seq[TSubnet], ip: string): bool =
+  for subnet in subnets:
+    if ip in subnet:
+      return true
+
+proc isAuthorized(hookIPs: var seq[TSubnet], ip: string): bool =
+  result = ip in hookIPs
+  if result == false:
+    # Update subnet list
+    getHookIPs(hookIPs)
+    result = ip in hookIPs
 
 when isMainModule:
   var state = open()
