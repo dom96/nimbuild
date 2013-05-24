@@ -1,8 +1,8 @@
 import strtabs, sockets, asyncio, scgi, strutils, os, json,
   osproc, streams, times, parseopt
   
-import httpclient
 from cgi import URLDecode
+from httpclient import get # httpclient.post conflicts with jester.post
 import jester
 import types
 
@@ -18,6 +18,8 @@ type
     scgiPort: TPort
 
     timeReconnected: float
+
+    hookIPs: seq[string]
 
 # Command line reading
 proc getCommandArgs(state: PState) =
@@ -35,7 +37,23 @@ proc getCommandArgs(state: PState) =
         state.scgiPort = TPort(parseInt(value))
       else: quit("Syntax: ./github -hp hubPort -sp scgiPort")
     of cmdEnd: assert false
-    
+
+# Github specific
+
+proc getHookIPs(hookIPs: var seq[string], timeout = 3000) =
+  ## Gets the allowed IP addresses using Github's API.
+  except: echo("  [Warning] Getting hookIPs failed: ", getCurrentExceptionMsg())
+  let resp = get("https://api.github.com/meta")
+  if resp.status[0] in {'4', '5'}:
+    echo("  [Warning] HookIPs won't change. Status code was: ", resp.status)
+    return
+  
+  let j = parseJSON(resp.body)
+  if j.existsKey("hooks"):
+    for ip in j["hooks"]:
+      if ip.str.endsWith("/32"):
+        hookIPs.add(ip.str[0 .. -4])
+
 # Communication
 
 proc parseReply(line: string, expect: string): Bool =
@@ -100,6 +118,7 @@ proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   
   result.hubPort = port
   result.scgiPort = scgiPort
+  result.hookIPs = @[]
   
   result.getCommandArgs()
 
@@ -108,14 +127,16 @@ proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   # jester
   result.dispatcher.register(port = result.scgiPort, http = false)
 
+  getHookIPs(result.hookIPs, timeout = -1) # Get initial set of IPs
+
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
   var obj = newJObject()
   obj["payload"] = payload
   sock.send($obj & "\c\L")
 
-proc isAuthorized(hostname: string): bool =
-  return hostname.endswith("github.com") or
-         hostname == "50-57-231-61.static.cloud-ips.com"
+proc isAuthorized(hookIPs: var seq[String], ip: string): bool =
+  getHookIPs(hookIPs)
+  return ip in hookIPs
 
 when isMainModule:
   var state = open()
@@ -128,7 +149,8 @@ when isMainModule:
     except:
       hostname = getCurrentExceptionMsg()
     echo("       ", hostname)
-    let authorized = isAuthorized(hostname)
+    let authorized = state.hookIPs.isAuthorized(request.ip)
+    echo("       ", if authorized: "Authorized." else: "Denied.")
     cond authorized
     let payload = @"payload"
     var json = parseJSON(payload)
