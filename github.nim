@@ -24,6 +24,8 @@ type
     timeReconnected: float
 
     subnets: seq[TSubnet]
+    apiETag: string
+    lastAPIAccess: float
 
 when not defined(ssl):
   {.error: "Need SSL support to get Github's IPs, compile with -d:ssl.".}
@@ -89,18 +91,31 @@ proc contains(subnet: TSubnet, ip: string): bool =
   let ipmask = parseIP4(ip)
   result = (subnetIP or submask) == (ipmask or submask)
 
-proc getHookSubnets(hookSubnets: var seq[TSubnet], timeout = 3000) =
+proc getHookSubnets(state: PState, timeout = 3000) =
   ## Gets the allowed IP addresses using Github's API.
   except: echo("  [Warning] Getting hookSubnets failed: ", getCurrentExceptionMsg())
-  let resp = get("https://api.github.com/meta")
+  
+  if epochTime() - state.lastAPIAccess < 5.0:
+    return
+  
+  var extraHeaders =
+    if state.apiETag != "": "If-None-Match: \"" & state.apiETag & "\"\c\L"
+    else: ""
+  let resp = get("https://api.github.com/meta", extraHeaders = extraHeaders)
+  state.lastAPIAccess = epochTime()
   if resp.status[0] in {'4', '5'}:
     echo("  [Warning] HookSubnets won't change. Status code was: ", resp.status)
+    return
+  elif resp.status[0 .. 2] == "304":
+    # Nothing changed.
     return
   
   let j = parseJSON(resp.body)
   if j.existsKey("hooks"):
-    for ip in j["hooks"]: hookSubnets.add(parseSubnet(ip.str))
+    for ip in j["hooks"]: state.subnets.add(parseSubnet(ip.str))
 
+  state.apiETag = resp.headers["ETag"]
+  
 # Communication
 
 proc parseReply(line: string, expect: string): Bool =
@@ -173,7 +188,9 @@ proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   # jester
   result.dispatcher.register(port = result.scgiPort, http = false)
 
-  getHookSubnets(result.subnets, timeout = -1) # Get initial set of subnets
+  result.apiETag = ""
+  getHookSubnets(result, timeout = -1) # Get initial set of subnets
+
 
 proc sendBuild(sock: TSocket, payload: PJsonNode) =
   var obj = newJObject()
@@ -185,12 +202,12 @@ proc contains(subnets: seq[TSubnet], ip: string): bool =
     if ip in subnet:
       return true
 
-proc isAuthorized(subnets: var seq[TSubnet], ip: string): bool =
-  result = ip in subnets
+proc isAuthorized(state: PState, ip: string): bool =
+  result = ip in state.subnets
   if result == false:
     # Update subnet list
-    getHookSubnets(subnets)
-    result = ip in subnets
+    getHookSubnets(state)
+    result = ip in state.subnets
 
 when isMainModule:
   var state = open()
@@ -203,7 +220,7 @@ when isMainModule:
     except:
       hostname = getCurrentExceptionMsg()
     echo("       ", hostname)
-    let authorized = state.subnets.isAuthorized(request.ip)
+    let authorized = state.isAuthorized(request.ip)
     echo("       ", if authorized: "Authorized." else: "Denied.")
     cond authorized
     let payload = @"payload"
