@@ -144,6 +144,12 @@ proc isRepoAnnounced(state: PState, url: string): bool =
     if url.ToLower().endswith(repo.ToLower()):
       return true
 
+proc getBranch(theRef: string): string =
+  if theRef.startswith("refs/heads/"):
+    result = theRef[11 .. -1]
+  else:
+    result = theRef
+
 proc handleWebMessage(state: PState, line: string) =
   echo("Got message from hub: " & line)
   var json = parseJson(line)
@@ -156,6 +162,7 @@ proc handleWebMessage(state: PState, line: string) =
         var message = ""
         message.add(json["payload"]["repository"]["owner"]["name"].str & "/" &
                     json["payload"]["repository"]["name"].str & " ")
+        message.add(json["payload"]["ref"].str.getBranch() & " ")
         message.add(commit["id"].str[0..6] & " ")
         message.add(commit["author"]["name"].str & " ")
         message.add("[+" & $commit["added"].len & " ")
