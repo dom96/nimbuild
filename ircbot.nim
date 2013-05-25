@@ -149,7 +149,8 @@ proc handleWebMessage(state: PState, line: string) =
   var json = parseJson(line)
   if json.existsKey("payload"):
     if isRepoAnnounced(state, json["payload"]["repository"]["url"].str):
-      for i in 0..min(4, json["payload"]["commits"].len-1):
+      let commitsToAnnounce = min(4, json["payload"]["commits"].len)
+      for i in 0..commitsToAnnounce-1:
         var commit = json["payload"]["commits"][i]
         # Create the message
         var message = ""
@@ -164,6 +165,9 @@ proc handleWebMessage(state: PState, line: string) =
 
         # Send message to #nimrod.
         pm(joinChans[0], message)
+      if commitsToAnnounce != json["payload"]["commits"].len:
+        let unannounced = json["payload"]["commits"].len-commitsToAnnounce
+        pm(joinChans[0], $unannounced & " more commits.")
   elif json.existsKey("redisinfo"):
     assert json["redisinfo"].existsKey("port")
     let redisPort = json["redisinfo"]["port"].num
