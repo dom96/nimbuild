@@ -111,6 +111,7 @@ proc parseReply(line: string, expect: string): Bool =
 
 proc limitCommitMsg(m: string): string =
   ## Limits the message to 300 chars and adds ellipsis.
+  ## Also gets rid of \n, uses only the first line.
   var m1 = m
   if NewLines in m1:
     m1 = m1.splitLines()[0]
@@ -120,7 +121,7 @@ proc limitCommitMsg(m: string): string =
 
   if m1.len >= 300 or NewLines in m: m1.add("... ")
 
-  if NewLines in m: m1.add($m.splitLines().len & " more lines")
+  if NewLines in m: m1.add($(m.splitLines().len-1) & " more lines")
 
   return m1
 
