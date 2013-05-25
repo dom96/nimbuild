@@ -386,7 +386,7 @@ proc handleIrc(irc: PAsyncIRC, event: TIRCEvent, state: PState) =
       of "!remnick":
         if words.len > 1:
           if isUserTrusted(state, event.nick, event.host):
-            if state.settings.announceRepos.del(words[1]):
+            if state.settings.announceNicks.del(words[1]):
               saveSettings(state)
               pmOrig("Done.")
             else:
