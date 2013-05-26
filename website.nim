@@ -3,6 +3,7 @@ import
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
   htmlgen, algorithm, tables
 import types, db, htmlhelp
+from irclog import renderHTML, loadLogger, PLogger
 
 import jester
 
@@ -27,6 +28,7 @@ type
     scgiPort: int
     redisPort: int
     isHttp: bool
+    ircLogsPath: string
 
   TModuleStatus = enum
     MSConnecting, ## Module connected, but has not sent the greeting.
@@ -77,9 +79,12 @@ proc parseConfig(state: PState, path: string) =
         of "ishttp":
           state.isHttp = n.value.normalize == "true"
           inc(count)
+        of "irclogspath":
+          state.ircLogsPath = n.value
+          inc(count)
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
-    if count < 6:
+    if count < 7:
       quit("Not all settings have been specified in the .ini file", quitFailure)
     close(p)
   else:
@@ -1056,6 +1061,28 @@ when isMainModule:
     let html = state.genHtml()
     resp html
   
+  get "/irclogs/?":
+    let curTime = getTime().getGMTime()
+    var logs: PLogger
+    loadLogger(state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.json'"), logs)
+    resp logs.renderHTML(true)
+  
+  getRe regex"^\/irclogs\/([0-9]{2})-([0-9]{2})-([0-9]{4})\.html$":
+    # /irclogs/@dd-@MM-@yyyy.html
+    let day = request.matches[0]
+    let month = request.matches[1]
+    let year = request.matches[2]
+    cond (day.parseInt() <= 31)
+    cond (month.parseInt() <= 12)
+    var logs: PLogger
+    let logsPath = state.ircLogsPath / "$1-$2-$3.json" % [day, month, year]
+    if existsFile(logsPath):
+      loadLogger(logsPath, logs)
+      resp logs.renderHTML(false)
+    else:
+      let logsHtml = logsPath.changeFileExt("html")
+      cond existsFile(logsHtml)
+      resp readFile(logsHtml)
   
   while True:
     doAssert state.dispatcher.poll()

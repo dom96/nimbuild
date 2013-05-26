@@ -12,7 +12,7 @@ const
   webFP = {fpUserRead, fpUserWrite, fpUserExec,
            fpGroupRead, fpGroupExec, fpOthersRead, fpOthersExec}
 
-proc loadLogger(f: string): PLogger =
+proc loadLogger*(f: string, result: var PLogger) =
   load(newFilestream(f, fmRead), result)
 
 proc newLogger*(logFilepath: string): PLogger =
@@ -22,7 +22,7 @@ proc newLogger*(logFilepath: string): PLogger =
   result.logFilepath = logFilepath
   let log = logFilepath / result.startTime.format("dd'-'MM'-'yyyy'.json'")
   if existsFile(log):
-    result = loadLogger(log)
+    loadLogger(log, result)
 
 proc renderItems(logger: PLogger): string =
   result = ""
@@ -90,21 +90,10 @@ proc renderHtml*(logger: PLogger, index = false): string =
       )
     )
 
-discard """proc renderJSONItems(logger: PLogger): PJsonNode =
-  result = newJArray()
-  for i in logger.items:
-    result.add(%{ "cmd": %($i.cmd),
-                  "msg": %i.msg.params[i.msg.params.len-1] })
-
-proc renderJSON(logger: PLogger): string =
-  let json = %{ "startTime": %logger.startTime.TimeInfoToTime.int,
-                "savedAt" :  %epochTime(),
-                "logs": renderJSONItems(logger)}
-  result = json.pretty()"""
-
 proc save(logger: PLogger, filename: string, index = false) =
-  writeFile(filename, renderHtml(logger, index))
-  setFilePermissions(filename, webFP)
+  #writeFile(filename, renderHtml(logger, index))
+  #setFilePermissions(filename, webFP)
+  writeFile(filename, $$logger)
   #if not index:
   #  writeFile(filename.changeFileExt("json"), $$logger)
 
@@ -119,8 +108,8 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?
     logger.items.add((getTime(), msg))
-    logger.save(logger.logFilepath / "index.html", true)
-    logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.html'"))
+    #logger.save(logger.logFilepath / "index.html", true)
+    logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.json'"))
   else: nil
 
 proc log*(logger: PLogger, nick, msg, chan: string) =
