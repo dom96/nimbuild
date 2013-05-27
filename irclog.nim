@@ -123,7 +123,7 @@ proc loadLogger*(f: string, result: var PLogger) =
 
 proc writeFlush(file: TFile, s: string) =
   file.write(s)
-  file.flush()
+  file.flushFile()
 
 proc newLogger*(logFilepath: string): PLogger =
   new(result)
