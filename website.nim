@@ -1064,7 +1064,7 @@ when isMainModule:
   get "/irclogs/?":
     let curTime = getTime().getGMTime()
     var logs: PLogger
-    loadLogger(state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.json'"), logs)
+    loadLogger(state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.logs'"), logs)
     resp logs.renderHTML(true)
   
   getRe regex"^\/irclogs\/([0-9]{2})-([0-9]{2})-([0-9]{4})\.html$":
