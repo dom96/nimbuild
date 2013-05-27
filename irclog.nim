@@ -121,6 +121,10 @@ proc load(f: string, logger: var PLogger) =
 proc loadLogger*(f: string, result: var PLogger) =
   load(f, result)
 
+proc writeFlush(file: TFile, s: string) =
+  file.write(s)
+  file.flush()
+
 proc newLogger*(logFilepath: string): PLogger =
   new(result)
   result.startTime = getTime().getGMTime()
@@ -132,7 +136,7 @@ proc newLogger*(logFilepath: string): PLogger =
     result.logFilepath = logFilepath
     open(result.logFile, log, fmAppend)
     # Write start time
-    result.logFile.write($epochTime() & "\n")
+    result.logFile.writeFlush($epochTime() & "\n")
 
 proc renderItems(logger: PLogger): string =
   result = ""
@@ -217,7 +221,7 @@ proc writeLog(logger: PLogger, msg: TIRCEvent) =
   text.add($msg.params & ",")
   text.add((if msg.origin == nil: "" else: msg.origin) & ",")
   text.add(if msg.raw == nil: "\"\"" else: strutils.escape(msg.raw))
-  logger.logFile.write(text & "\n")
+  logger.logFile.writeFlush(text & "\n")
 
 proc log*(logger: PLogger, msg: TIRCEvent) =
   if msg.origin != "#nimrod" and msg.cmd notin {MQuit, MNick}: return
@@ -230,7 +234,7 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
     let log = logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.logs'")
     doAssert open(logger.logFile, log, fmAppend)
     # Write start time
-    logger.logFile.write($epochTime() & "\n")
+    logger.logFile.writeFlush($epochTime() & "\n")
     
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?

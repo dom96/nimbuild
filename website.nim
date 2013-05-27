@@ -1075,7 +1075,7 @@ when isMainModule:
     cond (day.parseInt() <= 31)
     cond (month.parseInt() <= 12)
     var logs: PLogger
-    let logsPath = state.ircLogsPath / "$1-$2-$3.json" % [day, month, year]
+    let logsPath = state.ircLogsPath / "$1-$2-$3.logs" % [day, month, year]
     if existsFile(logsPath):
       loadLogger(logsPath, logs)
       resp logs.renderHTML(false)
