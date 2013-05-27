@@ -156,25 +156,40 @@ proc handleWebMessage(state: PState, line: string) =
   if json.existsKey("payload"):
     if isRepoAnnounced(state, json["payload"]["repository"]["url"].str):
       let commitsToAnnounce = min(4, json["payload"]["commits"].len)
-      for i in 0..commitsToAnnounce-1:
-        var commit = json["payload"]["commits"][i]
-        # Create the message
+      if commitsToAnnounce != 0:
+        for i in 0..commitsToAnnounce-1:
+          var commit = json["payload"]["commits"][i]
+          # Create the message
+          var message = ""
+          message.add(json["payload"]["repository"]["owner"]["name"].str & "/" &
+                      json["payload"]["repository"]["name"].str & " ")
+          message.add(json["payload"]["ref"].str.getBranch() & " ")
+          message.add(commit["id"].str[0..6] & " ")
+          message.add(commit["author"]["name"].str & " ")
+          message.add("[+" & $commit["added"].len & " ")
+          message.add("±" & $commit["modified"].len & " ")
+          message.add("-" & $commit["removed"].len & "]: ")
+          message.add(limitCommitMsg(commit["message"].str))
+
+          # Send message to #nimrod.
+          pm(joinChans[0], message)
+        if commitsToAnnounce != json["payload"]["commits"].len:
+          let unannounced = json["payload"]["commits"].len-commitsToAnnounce
+          pm(joinChans[0], $unannounced & " more commits.")
+      else:
+        # New branch
         var message = ""
         message.add(json["payload"]["repository"]["owner"]["name"].str & "/" &
-                    json["payload"]["repository"]["name"].str & " ")
-        message.add(json["payload"]["ref"].str.getBranch() & " ")
-        message.add(commit["id"].str[0..6] & " ")
-        message.add(commit["author"]["name"].str & " ")
-        message.add("[+" & $commit["added"].len & " ")
-        message.add("±" & $commit["modified"].len & " ")
-        message.add("-" & $commit["removed"].len & "]: ")
-        message.add(limitCommitMsg(commit["message"].str))
-
-        # Send message to #nimrod.
-        pm(joinChans[0], message)
-      if commitsToAnnounce != json["payload"]["commits"].len:
-        let unannounced = json["payload"]["commits"].len-commitsToAnnounce
-        pm(joinChans[0], $unannounced & " more commits.")
+                              json["payload"]["repository"]["name"].str & " ")
+        let theRef = json["payload"]["ref"].str.getBranch()
+        if existsKey(json["payload"], "base_ref"):
+          let baseRef = json["payload"]["base_ref"].str.getBranch()
+          message.add("New branch: " & baseRef & " -> " & theRef)
+        else:
+          message.add("New branch: " & theRef)
+        
+        message.add(" by " & json["payload"]["pusher"]["name"].str)
+        
   elif json.existsKey("redisinfo"):
     assert json["redisinfo"].existsKey("port")
     let redisPort = json["redisinfo"]["port"].num
