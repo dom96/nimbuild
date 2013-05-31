@@ -1,10 +1,10 @@
-import htmlgen, times, irc, streams, strutils, os, json, parseutils
+import htmlgen, times, irc, streams, strutils, os, json, parseutils, marshal
 from xmltree import escape
 
 type
   TLogger = object # Items get erased when new day starts.
     startTime: TTimeInfo
-    items: seq[tuple[time: TTime, msg: TIRCEvent]]
+    items: seq[tuple[time: TTime, msg: TIRCEvent]] ## Only used for HTML gen
     logFilepath: string
     logFile: TFile
   PLogger* = ref TLogger
@@ -13,130 +13,42 @@ const
   webFP = {fpUserRead, fpUserWrite, fpUserExec,
            fpGroupRead, fpGroupExec, fpOthersRead, fpOthersExec}
 
-proc doSkipError(s: string, toSkip: string, i: int): int =
-  result = skip(s, toSkip, i)
-  if result != toSkip.len:
-    raise newException(EInvalidValue, "Expected '$1' got '$2'" %
-                       [strutils.escape(toSkip), s[i .. i+toSkip.len-1]])
-
-proc parseQuoted(logs: string, i: var int): string =
-  ## Parses a quoted string.
-  ## Resulting string contains ``"`` at start and end.
-  result = ""
-  if logs[i] != '\"':
-    raise newException(EInvalidValue, "String does not begin with \"")
-  result.add('\"')
-  i.inc
-  while true:
-    case logs[i]
-    of '\\':
-      if i+1 > logs.len-1:
-        raise newException(EInvalidValue, "Expected something after \\")
-      result.add(logs[i] & logs[i+1])
-      inc i
-    of '"':
-      result.add(logs[i])
-      inc i
-      break
-    of '\0':
-      raise newException(EInvalidValue,
-              "Expected \" at the end of string, but reached end of string")
-    else:
-      result.add(logs[i])
-    inc i
-    
-proc parseSeq(logs: string, i: var int): seq[string] =
-  result = @[]
-  i.inc doSkipError(logs, "[", i) # skip [
-  var temp = ""
-  while true:
-    temp = parseQuoted(logs, i)
-    result.add(unescape(temp))
-    case logs[i]
-    of ',':
-      i.inc 1
-    of ']':
-      i.inc 1
-      break
-    else:
-      raise newException(EInvalidValue, "Expected ',' or ']' got " & logs[i])
-
-proc parseLogLine(logs: string, i: var int): tuple[time: TTime, msg: TIRCEvent] =
-  var ircevent: TIRCEvent
-  ircevent.typ = EvMsg
-  # timestamp
-  var timestamp: float
-  i.inc parseFloat(logs, timestamp, i)
-
-  # skip ,
-  i.inc doSkipError(logs, ",", i)
-  # cmd
-  var cmd = ""
-  i.inc parseUntil(logs, cmd, ',', i)
-  ircevent.cmd = parseEnum[TIRCMType](cmd)
-  i.inc doSkipError(logs, ",", i) # skip ,
-   
-  i.inc parseUntil(logs, ircevent.nick, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-  
-  i.inc parseUntil(logs, ircevent.user, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-  
-  i.inc parseUntil(logs, ircevent.host, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-  
-  i.inc parseUntil(logs, ircevent.servername, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-  
-  i.inc parseUntil(logs, ircevent.numeric, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-
-  ircevent.params = parseSeq(logs, i)
-  i.inc doSkipError(logs, ",", i) # skip ,
-  
-  i.inc parseUntil(logs, ircevent.origin, ',', i) 
-  i.inc doSkipError(logs, ",", i) # skip ,
-
-  var escapedRaw = parseQuoted(logs, i)
-  ircevent.raw = unescape(escapedRaw)
-  i.inc doSkipError(logs, "\n", i) # skip \n
-  
-  return (fromSeconds(timestamp), ircevent)
-
-proc load(f: string, logger: var PLogger) =
-  var logs = readFile(f)
-  var i = 0
+proc loadLogger*(f: string, forRender: bool): PLogger =
+  new(result)
+  result.items = @[]
+  let logs = readFile(f)
+  let lines = logs.splitLines()
+  var i = 1
   # Line 1: Start time
-  var startTime: float
-  i.inc parseFloat(logs, startTime, i)
-  logger.startTime = fromSeconds(startTime).getGMTime()
-  # Skip \n
-  i.inc(doSkipError(logs, "\n", i))
+  result.startTime = fromSeconds(to[float](lines[0])).getGMTime()
   
-  while logs[i] != '\0':
-    logger.items.add(parseLogLine(logs, i))
+  if forRender:
+    while i < lines.len:
+      if lines[i] != "":
+        result.items.add(to[tuple[time: TTime, msg: TIRCEvent]](lines[i]))
+      inc i
   
-  doAssert open(logger.logFile, f, fmAppend)
-
-proc loadLogger*(f: string, result: var PLogger) =
-  load(f, result)
+  if not forRender:
+    doAssert open(result.logFile, f, fmAppend)
+  result.logFilepath = f.splitFile.dir
 
 proc writeFlush(file: TFile, s: string) =
   file.write(s)
   file.flushFile()
 
 proc newLogger*(logFilepath: string): PLogger =
-  new(result)
-  result.startTime = getTime().getGMTime()
-  result.items = @[]
-  let log = logFilepath / result.startTime.format("dd'-'MM'-'yyyy'.logs'")
+  let startTime = getTime().getGMTime()
+  let log = logFilepath / startTime.format("dd'-'MM'-'yyyy'.logs'")
   if existsFile(log):
-    loadLogger(log, result)
+    result = loadLogger(log, false)
   else:
+    new(result)
+    result.startTime = startTime
+    result.items = @[]
     result.logFilepath = logFilepath
     open(result.logFile, log, fmAppend)
     # Write start time
-    result.logFile.writeFlush($epochTime() & "\n")
+    result.logFile.writeFlush($$epochTime() & "\n")
 
 proc renderItems(logger: PLogger): string =
   result = ""
@@ -210,18 +122,7 @@ proc `$`(s: seq[string]): string =
   result = "[" & join(escaped, ",") & "]"
 
 proc writeLog(logger: PLogger, msg: TIRCEvent) =
-  var text = ""
-  text.add($epochTime() & ",")
-  text.add($msg.cmd & ",")
-  text.add((if msg.nick == nil: "" else: msg.nick) & ",")
-  text.add((if msg.user == nil: "" else: msg.user) & ",")
-  text.add((if msg.host == nil: "" else: msg.host) & ",")
-  text.add((if msg.servername == nil: "" else: msg.servername) & ",")
-  text.add((if msg.numeric == nil: "" else: msg.numeric) & ",")
-  text.add($msg.params & ",")
-  text.add((if msg.origin == nil: "" else: msg.origin) & ",")
-  text.add(if msg.raw == nil: "\"\"" else: strutils.escape(msg.raw))
-  logger.logFile.writeFlush(text & "\n")
+  logger.logFile.writeFlush($$(time: getTime(), msg: msg) & "\n")
 
 proc log*(logger: PLogger, msg: TIRCEvent) =
   if msg.origin != "#nimrod" and msg.cmd notin {MQuit, MNick}: return
@@ -238,7 +139,7 @@ proc log*(logger: PLogger, msg: TIRCEvent) =
     
   case msg.cmd
   of MPrivMsg, MJoin, MPart, MNick, MQuit: # TODO: MTopic? MKick?
-    logger.items.add((getTime(), msg))
+    #logger.items.add((getTime(), msg))
     #logger.save(logger.logFilepath / logger.startTime.format("dd'-'MM'-'yyyy'.json'"))
     writeLog(logger, msg)
   else: nil
@@ -256,5 +157,5 @@ when isMainModule:
   var logger = newLogger("testing/logstest")
   logger.log("dom96", "Hello!", "#nimrod")
   logger.log("dom96", "Hello\r, testing, \"\"", "#nimrod")
-  loadLogger("testing/logstest/26-05-2013.logs", logger)
+  #logger = loadLogger("testing/logstest/26-05-2013.logs")
   echo repr(logger)

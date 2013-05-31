@@ -1063,8 +1063,8 @@ when isMainModule:
   
   get "/irclogs/?":
     let curTime = getTime().getGMTime()
-    var logs: PLogger
-    loadLogger(state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.logs'"), logs)
+    let path = state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.logs'")
+    var logs = loadLogger(path, true)
     resp logs.renderHTML(true)
   
   getRe regex"^\/irclogs\/([0-9]{2})-([0-9]{2})-([0-9]{4})\.html$":
@@ -1077,7 +1077,7 @@ when isMainModule:
     var logs: PLogger
     let logsPath = state.ircLogsPath / "$1-$2-$3.logs" % [day, month, year]
     if existsFile(logsPath):
-      loadLogger(logsPath, logs)
+      logs = loadLogger(logsPath, true)
       resp logs.renderHTML(false)
     else:
       let logsHtml = logsPath.changeFileExt("html")
