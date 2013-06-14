@@ -70,12 +70,14 @@ proc renderHtml*(logger: PLogRenderer, req: jester.TRequest): string =
                     logger.startTime.month == today.month and
                     logger.startTime.year == today.year
   let previousDay = logger.startTime - (initInterval(days=1))
-  let prevUrl     = req.makeUri(previousDay.format("dd'-'MM'-'yyyy'.html'"),
+  let prevUrl     = req.makeUri("irclogs/" &
+                                previousDay.format("dd'-'MM'-'yyyy'.html'"),
                                 absolute = false)
   let nextDay     = logger.startTime + (initInterval(days=1))
   let nextUrl     =
     if isToday: ""
-    else: req.makeUri(nextDay.format("dd'-'MM'-'yyyy'.html'"), absolute = false)
+    else: req.makeUri("irclogs/" &
+                      nextDay.format("dd'-'MM'-'yyyy'.html'"), absolute = false)
   result = 
     html(
       head(title("#nimrod logs for " & logger.startTime.format("dd'-'MM'-'yyyy")),
