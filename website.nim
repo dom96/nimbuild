@@ -3,7 +3,8 @@ import
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
   htmlgen, algorithm, tables
 import types, db, htmlhelp
-from irclog import renderHTML, loadLogger, PLogger
+from irclog import loadLogger, PLogger
+import irclogrender
 
 import jester
 
@@ -1064,8 +1065,8 @@ when isMainModule:
   get "/irclogs/?":
     let curTime = getTime().getGMTime()
     let path = state.ircLogsPath / curTime.format("dd'-'MM'-'yyyy'.logs'")
-    var logs = loadLogger(path, true)
-    resp logs.renderHTML(true)
+    var logs = loadRenderer(path)
+    resp logs.renderHTML(request)
   
   getRe regex"^\/irclogs\/([0-9]{2})-([0-9]{2})-([0-9]{4})\.html$":
     # /irclogs/@dd-@MM-@yyyy.html
@@ -1074,11 +1075,11 @@ when isMainModule:
     let year = request.matches[2]
     cond (day.parseInt() <= 31)
     cond (month.parseInt() <= 12)
-    var logs: PLogger
+    var logs: PLogRenderer
     let logsPath = state.ircLogsPath / "$1-$2-$3.logs" % [day, month, year]
     if existsFile(logsPath):
-      logs = loadLogger(logsPath, true)
-      resp logs.renderHTML(false)
+      logs = loadRenderer(logsPath)
+      resp logs.renderHTML(request)
     else:
       let logsHtml = logsPath.changeFileExt("html")
       cond existsFile(logsHtml)
