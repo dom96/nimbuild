@@ -270,8 +270,10 @@ proc checkBuilderQueue(state: PState, platform: string) =
   if state.buildQueue.hasKey(platform) and
       state.buildQueue[platform].len != 0:
     let cm = state.buildQueue.mget(platform).pop()
-    state.database.addPlatform(cm.payload["payload"]["after"].str,
-                  platform)
+    if not state.database.platformExists(cm.payload["payload"]["after"].str,
+                  platform):
+      state.database.addPlatform(cm.payload["payload"]["after"].str,
+                    platform)
     let json = %{"payload": cm.payload["payload"], "rebuild": %false}
     var builder: TModule
     doAssert findBuilderModule(state, platform, builder)
