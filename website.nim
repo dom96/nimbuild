@@ -585,8 +585,16 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
 
           # Getting a message is a sign of the module still being alive.
           state.modules[i].lastPong = epochTime()
-
-          state.parseMessage(i, line)
+          try:
+            state.parseMessage(i, line)
+          except:
+            state.modules[i].sock.send($(%{"fatal": %getStackTrace(getCurrentException())}) & "\c\L")
+            state.modules[i].sock.close()
+            echo("Fatal error for ", uniqueMName(state.modules[i]))
+            echo(getStackTrace(getCurrentException()))
+            echo("--------------------------")
+            IRCAnnounce(state, uniqueMName(state.modules[i]) & " created a fatal error.", true)
+            disconnect.add(m)
   
   # Remove disconnected modules
   for m in items(disconnect):

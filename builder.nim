@@ -766,6 +766,12 @@ proc open(configPath: string): PState =
 proc initJob(payload: PJsonNode): TJob =
   result.payload = payload
 
+proc hubDisconnect(state: PState) =
+  state.sock.close()
+
+  state.lastMsgTime = epochTime()
+  state.pinged = -1.0
+
 proc parseMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
   state.lastMsgTime = epochTime()
@@ -801,11 +807,12 @@ proc parseMessage(state: PState, line: string) =
     state.pinged = -1.0
     echo("Hub replied to PING. Still connected")
 
-proc hubDisconnect(state: PState) =
-  state.sock.close()
-
-  state.lastMsgTime = epochTime()
-  state.pinged = -1.0
+  elif json.existsKey("fatal"):
+    # Fatal error occurred in the website. We must exit.
+    echo("FATAL ERROR")
+    echo(json["fatal"])
+    hubDisconnect(state)
+    quit(QuitFailure)
 
 proc reconnect(state: PState) =
   state.hubDisconnect()
