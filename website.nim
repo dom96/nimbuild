@@ -263,7 +263,14 @@ proc setDesc(state: PState, p: string, desc: string) =
   state.platforms[p] = s
 
 proc writeBuildSpecificLogs(state: PState, platf: string, line: string) =
-  mGetBuilderModule(state, platf).logFile.write(line & "\n")
+  let m = mGetBuilderModule(state, platf)
+  if m.logFile == nil:
+    # TODO: This will happen if a builder reconnects during a build,
+    # the builder should send some sort of command to reopen the logFile upon
+    # reconnection
+    echo("Warning: Could not write to logfile as it is nil.")
+    return
+  m.logFile.write(line & "\n")
 
 proc checkBuilderQueue(state: PState, platform: string) =
   ## Checks builder queue and sends a message to the builder immediatelly.
