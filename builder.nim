@@ -484,26 +484,29 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
     of EvTransferProgress:
       hubSendFTPUploadSpeed(ev.speed.float / 1024.0)
     else: assert false
-  
-  var ftpc = AsyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
-  echo("Connecting to ftp://" & user & "@" & ftpAddr & ":" & $ftpPort)
-  ftpc.connect()
-  assert ftpc.pwd().startsWith("/home/" & user) # /home/nimrod
-  ftpc.cd(workDir)
-  echo("FTP: Work dir is " & workDir)
-  echo("FTP: Creating " & uploadDir)
-  try: ftpc.createDir(uploadDir, true)
-  except EInvalidReply: nil # TODO: Check properly whether the folder exists
-  
-  ftpc.chmod(uploadDir, webFP)
-  ftpc.cd(uploadDir)
-  echo("FTP: Work dir is " & ftpc.pwd())
-  var disp = newDispatcher()
-  disp.register(ftpc)
-  echo("FTP: Uploading ", file, " to ", destFile)
-  ftpc.store(file, destFile, async = true)
-  while true:
-    if not disp.poll(5000): break
+
+  try:
+    var ftpc = AsyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
+    echo("Connecting to ftp://" & user & "@" & ftpAddr & ":" & $ftpPort)
+    ftpc.connect()
+    assert ftpc.pwd().startsWith("/home/" & user) # /home/nimrod
+    ftpc.cd(workDir)
+    echo("FTP: Work dir is " & workDir)
+    echo("FTP: Creating " & uploadDir)
+    try: ftpc.createDir(uploadDir, true)
+    except EInvalidReply: nil # TODO: Check properly whether the folder exists
+    
+    ftpc.chmod(uploadDir, webFP)
+    ftpc.cd(uploadDir)
+    echo("FTP: Work dir is " & ftpc.pwd())
+    var disp = newDispatcher()
+    disp.register(ftpc)
+    echo("FTP: Uploading ", file, " to ", destFile)
+    ftpc.store(file, destFile, async = true)
+    while true:
+      if not disp.poll(5000): break
+
+  except EInvalidReply: raise newException(EBuildEnd, getCurrentExceptionMsg())
 
 proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   ## Runs the tester, returns the full absolute path to where the tests
