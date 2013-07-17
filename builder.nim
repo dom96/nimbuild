@@ -425,7 +425,7 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
       # build.bat
       run(nimLoc, getEnv("COMSPEC"), "/c", "build" / "build.bat", csourceExtraBuildArgs)
     else:
-      run(nimLoc / "build", findExe("unzip"), "csources.zip")
+      run(nimLoc / "build", findExe("unzip"), "-o", "csources.zip")
       # ./build.sh
       run(nimLoc, findExe("sh"), "build" / "build.sh", csourceExtraBuildArgs)
   
