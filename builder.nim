@@ -390,7 +390,7 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   let branch = payload["ref"].str[11 .. -1]
   let commitHash = payload["after"].str
 
-  #run(nimLoc, findExe("git"), "checkout", ".")
+  run(nimLoc, findExe("git"), "checkout", "--", ".")
   run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
   run(nimLoc, findExe("git"), "checkout", "master") # Restore to master, so that git pull works.
   run(nimLoc, findExe("git"), "pull") # General pull.
