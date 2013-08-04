@@ -390,13 +390,25 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   let branch = payload["ref"].str[11 .. -1]
   let commitHash = payload["after"].str
 
+  var cSourcesPrevHEAD = ""
+  if existsDir(nimLoc / "csources"):
+    cSourcesPrevHEAD = readFile(nimLoc / "csources" / ".git" /
+                                "refs" / "heads" / "master")
+    removeDir(nimLoc / "csources") # Remove cloned csources repo.
+
   run(nimLoc, findExe("git"), "checkout", "--", ".")
-  run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
+  #run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
   run(nimLoc, findExe("git"), "checkout", "master") # Restore to master, so that git pull works.
   run(nimLoc, findExe("git"), "pull") # General pull.
   run(nimLoc, findExe("git"), "checkout", branch)
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
+
+  # Clone C sources repo.
+  run(nimLoc, findExe("git"), "clone", "https://github.com/nimrod-code/csources")
+  let currCSourcesHead = readFile(nimLoc / "csources" / ".git" /
+                                  "refs" / "heads" / "master")
+  payload["csources"] = %(not (cSourcesPrevHEAD == currCSourcesHead))
 
 proc exe(f: string): string = return addFileExt(f, ExeExt)
 
@@ -415,19 +427,19 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
 
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
-  if fileInModified(payload, "build/csources.zip") or 
+  if payload["csources"].bval or 
        not existsFile("bin" / "nimrod".exe):
     if existsFile(nimLoc / "koch".exe):
       run(nimLoc, "koch".exe, "clean")
+    
+    
     # Unzip C Sources
     when defined(windows):
-      run(nimLoc / "build", findExe("7za"), "x", "csources.zip")
       # build.bat
-      run(nimLoc, getEnv("COMSPEC"), "/c", "build" / "build.bat", csourceExtraBuildArgs)
+      run(nimLoc / "csources", getEnv("COMSPEC"), "/c", "build.bat", csourceExtraBuildArgs)
     else:
-      run(nimLoc / "build", findExe("unzip"), "-o", "csources.zip")
       # ./build.sh
-      run(nimLoc, findExe("sh"), "build" / "build.sh", csourceExtraBuildArgs)
+      run(nimLoc / "csources", findExe("sh"), "build" / "build.sh", csourceExtraBuildArgs)
   
   if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
