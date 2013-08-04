@@ -607,19 +607,13 @@ proc bootstrapTmpl(info: TBuildData) {.thread.} =
       # -- Move the build directory to the zip location
       let csourcesPath = makeZipPath(cfg.platform, commitHash) & "_csources"
       var csourcesZipFile = csourcesPath.addFileExt("zip")
-      dMoveDir(cfg.nimLoc / "build", cfg.zipLoc / csourcesPath / "build")
+      dMoveDir(cfg.nimLoc / "build", cfg.zipLoc / csourcesPath)
       # -- Move `build_old` to where it was previously.
       dMoveDir(cfg.nimLoc / "build_old", cfg.nimLoc / "build")
-      # -- Copy build.sh and build.bat.
-      dCopyFile(cfg.nimLoc / "build.sh", cfg.zipLoc / csourcesPath /
-                 "build.sh")
-      dCopyFile(cfg.nimLoc / "build.bat", cfg.zipLoc / csourcesPath /
-                 "build.bat")
       # -- License
       dCopyFile(cfg.nimLoc / "copying.txt",
                 cfg.zipLoc / csourcesPath / "copying.txt")
-      #dCopyFile(cfg.nimLoc / "gpl.html",
-      #          cfg.zipLoc / csourcesPath / "gpl.html")
+
       writeFile(cfg.zipLoc / csourcesPath / "readme2.txt", buildReadme)
       # -- ZIP!
       if existsFile(cfg.zipLoc / csourcesZipFile):
