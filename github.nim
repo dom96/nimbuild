@@ -192,7 +192,7 @@ proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
   getHookSubnets(result, timeout = -1) # Get initial set of subnets
 
 
-proc sendBuild(sock: TSocket, payload: PJsonNode) =
+proc sendBuild(sock: PAsyncSocket, payload: PJsonNode) =
   var obj = newJObject()
   obj["payload"] = payload
   sock.send($obj & "\c\L")
