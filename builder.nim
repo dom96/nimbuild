@@ -398,9 +398,9 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 
   run(nimLoc, findExe("git"), "checkout", "--", ".")
   #run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
-  run(nimLoc, findExe("git"), "checkout", "master") # Restore to master, so that git pull works.
+  run(nimLoc, findExe("git"), "checkout", "-f", "master") # Restore to master, so that git pull works.
   run(nimLoc, findExe("git"), "pull") # General pull.
-  run(nimLoc, findExe("git"), "checkout", branch)
+  run(nimLoc, findExe("git"), "checkout", "-f", branch)
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
