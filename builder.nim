@@ -439,7 +439,7 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
       run(nimLoc / "csources", getEnv("COMSPEC"), "/c", "build.bat", csourceExtraBuildArgs)
     else:
       # ./build.sh
-      run(nimLoc / "csources", findExe("sh"), "build" / "build.sh", csourceExtraBuildArgs)
+      run(nimLoc / "csources", findExe("sh"), "build.sh", csourceExtraBuildArgs)
   
   if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
