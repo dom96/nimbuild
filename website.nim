@@ -628,7 +628,10 @@ proc handlePings(state: PState) =
     of MSConnecting:
       if (epochTime() - module.lastPong) >= 2.0:
         echo(uniqueMName(module), " did not send a greeting.")
-        module.sock.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
+        try:
+          module.sock.send("{ \"reply\": \"FAIL\", \"desc\": \"Took too long\" }\c\L")
+        except EOS:
+          echo("Could not send error message for module: ", getCurrentExceptionMsg())
         remove.add(module)
   
   # Remove the modules that have timed out.

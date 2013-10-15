@@ -35,7 +35,7 @@ proc newLogger*(logFilepath: string): PLogger =
     new(result)
     result.startTime = startTime
     result.logFilepath = logFilepath
-    open(result.logFile, log, fmAppend)
+    doAssert open(result.logFile, log, fmAppend)
     # Write start time
     result.logFile.writeFlush($$epochTime() & "\n")
 
