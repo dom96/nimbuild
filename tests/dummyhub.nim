@@ -28,7 +28,7 @@ when isMainModule:
   hubSock.handleAccept =
     proc (s: PAsyncSocket) =
       if currentClient != nil: currentClient.close()
-      currentClient = s.accept()
+      s.accept(currentClient)
       currentClient.handleRead = clientRead
       disp.register(currentClient)
   disp.register(hubSock)

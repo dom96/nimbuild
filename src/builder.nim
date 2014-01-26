@@ -313,7 +313,7 @@ proc tallyTestResults(path: string):
   return (total, passed, skipped, total - (passed + skipped))
 
 proc fileInModified(json: PJsonNode, file: string): bool =
-  if json.existsKey("commits"):
+  if json.hasKey("commits"):
     for commit in items(json["commits"].elems):
       for f in items(commit["modified"].elems):
         if f.str == file: return true
@@ -715,7 +715,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     # TODO: Don't use select here. Just sleep(1500). Then readLine.
     if select(readSocks, 1500) == 1:
       var line = ""
-      if not state.sock.recvLine(line):
+      if not state.sock.readLine(line):
         raise newException(EInvalidValue, "recvLine failed.")
       if not parseReply(line, "OK"):
         raise newException(EInvalidValue, "Incorrect welcome message from hub") 
@@ -785,25 +785,25 @@ proc parseMessage(state: PState, line: string) =
   echo("Got message from hub: ", line)
   state.lastMsgTime = epochTime()
   var json = parseJson(line)
-  if json.existsKey("payload"):
+  if json.hasKey("payload"):
     if json["rebuild"].bval:
       # This commit has already been built. We don't get a full payload as
       # it is not stored.
       # Because the build process depends on "after" that is all that is
       # needed.
-      assert(json["payload"].existsKey("after"))
+      assert(json["payload"].hasKey("after"))
       state.buildJob = initJob(json["payload"])
       echo("Re-bootstrapping!")
       state.beginBuild()
     else:
       # This should be a message from the "github" module
       # The payload object should have a `after` string.
-      assert(json["payload"].existsKey("after"))
+      assert(json["payload"].hasKey("after"))
       state.buildJob = initJob(json["payload"])
       echo("Bootstrapping!")
       state.beginBuild()
 
-  elif json.existsKey("ping"):
+  elif json.hasKey("ping"):
     # Website is making sure that the connection is alive.
     # All we do is change the "ping" to "pong" and reply.
     json["pong"] = json["ping"]
@@ -811,12 +811,12 @@ proc parseMessage(state: PState, line: string) =
     state.sock.send($json & "\c\L")
     echo("Replying to Ping")
   
-  elif json.existsKey("pong"):
+  elif json.hasKey("pong"):
     # Website replied. Connection is still alive.
     state.pinged = -1.0
     echo("Hub replied to PING. Still connected")
 
-  elif json.existsKey("fatal"):
+  elif json.hasKey("fatal"):
     # Fatal error occurred in the website. We must exit.
     echo("FATAL ERROR")
     echo(json["fatal"])
@@ -844,11 +844,12 @@ proc reconnect(state: PState) =
 proc handleHubMessage(s: PAsyncSocket, state: PState) =
   try:
     var line = ""
-    if state.sock.recvLine(line):
+    if state.sock.readLine(line):
       if line != "":
         state.parseMessage(line)
       else:
-        echo("Disconnected from hub (recvLine returned \"\"): ", OSErrorMsg())
+        echo("Disconnected from hub (recvLine returned \"\"): ",
+             OSErrorMsg(OSLastError()))
         reconnect(state)
   except EOS:
     echo("Disconnected from hub: ", getCurrentExceptionMsg())
