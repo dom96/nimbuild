@@ -78,6 +78,6 @@ proc log*(logger: PLogger, nick, msg, chan: string) =
 when isMainModule:
   var logger = newLogger("testing/logstest")
   logger.log("dom96", "Hello!", "#nimrod")
-  logger.log("dom96", "Hello\r, testing, \"\"", "#nimrod")
+  logger.log("dom96", "Hello\r, testingí, \"\"", "#nimrod")
   #logger = loadLogger("testing/logstest/26-05-2013.logs")
   echo repr(logger)

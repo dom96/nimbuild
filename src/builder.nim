@@ -713,7 +713,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     # Wait for reply.
     var readSocks = @[state.sock.getSocket]
     # TODO: Don't use select here. Just sleep(1500). Then readLine.
-    if select(readSocks, 1500) == 1 and readSocks.len == 0:
+    if select(readSocks, 1500) == 1:
       var line = ""
       if not state.sock.recvLine(line):
         raise newException(EInvalidValue, "recvLine failed.")
@@ -822,6 +822,15 @@ proc parseMessage(state: PState, line: string) =
     echo(json["fatal"])
     hubDisconnect(state)
     quit(QuitFailure)
+
+  elif json.hasKey("do"):
+    case json["do"].str
+    of "stop":
+      ## Terminate build
+      state.stopBuild()
+    else:
+      echo("[FATAL] Don't understand message from hub")
+      assert false
 
 proc reconnect(state: PState) =
   state.hubDisconnect()
