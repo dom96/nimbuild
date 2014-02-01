@@ -403,29 +403,29 @@ proc run(workDir: string, exec: string, args: varargs[string]) =
 
 proc exe(f: string): string = return addFileExt(f, ExeExt)
 
-proc restoreBranchSpecificBin(dir, bin, refs: string) =
-  let branchSpecificBin = dir / (bin & "_" & refs[11 .. -1]).exe
+proc restoreBranchSpecificBin(dir, bin, branch: string) =
+  let branchSpecificBin = dir / (bin & "_" & branch).exe
   if existsFile(branchSpecificBin):
     copyFile(branchSpecificBin, dir / bin.exe)
 
-proc backupBranchSpecificBin(dir, bin, refs: string) =
+proc backupBranchSpecificBin(dir, bin, branch: string) =
   if existsFile(dir / bin.exe):
-    copyFile(dir / bin.exe, dir / (bin & "_" & refs[11 .. -1]).exe)
+    copyFile(dir / bin.exe, dir / (bin & "_" & branch).exe)
 
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
-  let refs = payload["ref"].str # This includes refs/origin/
+  let branch = payload["ref"].str[11 .. -1]
   let commitHash = payload["after"].str
 
   run(nimLoc, findExe("git"), "checkout", "--", ".")
   run(nimLoc, findExe("git"), "fetch", "--all")
-  run(nimLoc, findExe("git"), "checkout", "-f", refs[5 .. -1])
+  run(nimLoc, findExe("git"), "checkout", "-f", "origin/" & branch)
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
   # If a branch specific nimrod binary exists. Change to it.
-  restoreBranchSpecificBin(nimLoc / "bin", "nimrod", refs)
-  restoreBranchSpecificBin(nimLoc, "koch", refs)
+  restoreBranchSpecificBin(nimLoc / "bin", "nimrod", branch)
+  restoreBranchSpecificBin(nimLoc, "koch", branch)
 
   # Handle C sources
   let prevCSourcesHead =
@@ -475,12 +475,12 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
     run(nimLoc, "bin" / "nimrod".exe, "c", "koch.nim")
-    backupBranchSpecificBin(nimLoc, "koch", payload["ref"].str)
+    backupBranchSpecificBin(nimLoc, "koch", payload["ref"].str[11 .. -1])
   
   # Bootstrap!
   run(nimLoc, "koch".exe, "boot")
   run(nimLoc, "koch".exe, "boot", "-d:release")
-  backupBranchSpecificBin(nimLoc / "bin", "nimrod", payload["ref"].str)
+  backupBranchSpecificBin(nimLoc / "bin", "nimrod", payload["ref"].str[11 .. -1])
 
 proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
                    nimLoc, rootZipLoc: string): string =
