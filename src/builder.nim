@@ -18,7 +18,6 @@ type
     payload: PJsonNode
     p: PProcess ## Current process that is running.
     cmd: string
-    thread: TThread[TBuildData]
 
   TCfg = object
     nimLoc: string ## Location of the nimrod repo
@@ -53,12 +52,9 @@ type
     lastMsgTime: float ## The last time a message was received from the hub.
     pinged: float
     reconnecting: bool
+    buildThread: TThread[int] # TODO: Change to void when bug is fixed.
   
   PState = ref TState
-
-  TBuildData = object
-    payload: PJsonNode
-    cfg: TCfg
 
   TBuildProgressType = enum
     ProcessStart, ProcessExit, HubMsg, BuildEnd
@@ -71,8 +67,15 @@ type
     of HubMsg:
       msg: string
 
-  TThreadCommand = enum
-    ThreadTerminate
+  TThreadCommandType = enum
+    BuildTerminate, BuildStart
+
+  TThreadCommand = object
+    case kind: TThreadCommandType
+    of BuildTerminate: nil
+    of BuildStart:
+      payload: PJsonNode
+      cfg: TCfg
 
   EBuildEnd = object of ESynch
 
@@ -318,22 +321,21 @@ proc fileInModified(json: PJsonNode, file: string): bool =
       for f in items(commit["modified"].elems):
         if f.str == file: return true
 
-template buildTmpl(info: TBuildData, body: stmt): stmt =
-  try:
-    body
-  except EBuildEnd:
-    hubSendBuildFail(getCurrentExceptionMsg())
-  hubSendBuildEnd()
-  if info.cfg.deleteOutgoing:
-    clearOutgoing(info.cfg.websiteLoc, info.cfg.platform)
-
-proc hasBuildTerminated(): bool =
-  ## Checks whether the main thread asked for the build to be terminated.
-  result = false
-  if threadCommandChan.peek() > 0:
+template buildTmpl(infoName: expr, body: stmt): stmt {.immediate.} =
+  while true:
     let thrCmd = threadCommandChan.recv()
-    assert thrCmd == ThreadTerminate
-    return true
+    case thrCmd.kind:
+    of BuildTerminate:
+      echo("[Warning] No bootstrap running.")
+    of BuildStart:
+      var infoName = thrCmd
+      try:
+        body
+      except EBuildEnd:
+        hubSendBuildFail(getCurrentExceptionMsg())
+      hubSendBuildEnd()
+      if info.cfg.deleteOutgoing:
+        clearOutgoing(info.cfg.websiteLoc, info.cfg.platform)
 
 proc runProcess(env: PStringTable = nil, workDir, execFile: string,
                 args: openarray[string]): bool =
@@ -379,8 +381,15 @@ proc run(env: PStringTable = nil, workDir: string, exec: string,
   if not runProcess(env, workDir, exec, args):
     raise newException(EBuildEnd,
         "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed.")
-  if hasBuildTerminated():
-    raise newException(EBuildEnd, "Bootstrap aborted.")
+  
+  if threadCommandChan.peek() > 0:
+    let thrCmd = threadCommandChan.recv()
+    case thrCmd.kind:
+    of BuildTerminate:
+      raise newException(EBuildEnd, "Bootstrap aborted.")
+    of BuildStart:
+      threadCommandChan.send(TThreadCommand(kind: BuildTerminate))
+      threadCommandChan.send(thrCmd)
 
 proc run(workDir: string, exec: string, args: varargs[string]) =
   run(nil, workDir, exec, args)
@@ -531,7 +540,7 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
                      webFP)
   dCopyFile(nimLoc / "testresults.html", result)
 
-proc bootstrapTmpl(info: TBuildData) {.thread.} =
+proc bootstrapTmpl(dummy: int) {.thread.} =
   ## Template for a full bootstrap.
   buildTmpl(info):
     let cfg = info.cfg
@@ -648,33 +657,24 @@ proc stopBuild(state: PState) =
   # as "terminated".
   if state.building:
     # Send the termination command first.
-    threadCommandChan.send(ThreadTerminate)
+    threadCommandChan.send(TThreadCommand(kind: BuildTerminate))
     
     # Simply terminate the currently running process, should hopefully work.
     if state.buildJob.p != nil:
       echo("Terminating build")
       state.buildJob.p.terminate()
 
-    # Block until thread exits.
-    joinThreads(state.buildJob.thread)
-
 proc beginBuild(state: PState) =
-  ## This procedure starts the process of building nimrod. All it does
-  ## is create a ``progress`` object, call ``buildProgressing()``,
-  ## execute the ``git checkout .`` command and open a commit specific log file.
+  ## This procedure starts the process of building nimrod.
   
   # First make sure to stop any currently running process.
   state.stopBuild()
-  
-  # Create the BuildInfo object.
-  var BuildData: TBuildData
-  assert state.buildJob.payload != nil
-  buildData.payload = state.buildJob.payload
-  buildData.cfg = state.cfg
 
-  # Create the thread.
+  # Tell the thread to start a build.
   state.building = true
-  createThread(state.buildJob.thread, bootstrapTmpl, BuildData)
+  let thrCmd = TThreadCommand(kind: BuildStart,
+    payload: state.buildJob.payload, cfg: state.cfg)
+  threadCommandChan.send(thrCmd)
 
 proc pollBuild(state: PState) =
   ## This is called from the main loop; it checks whether the bootstrap
@@ -769,6 +769,9 @@ proc open(configPath: string): PState =
   
   # Init job
   cres.buildJob = initJob()
+
+  # Start build thread
+  createThread(cres.buildThread, bootstrapTmpl, 0)
 
   result = cres
 
