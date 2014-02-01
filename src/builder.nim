@@ -403,28 +403,31 @@ proc run(workDir: string, exec: string, args: varargs[string]) =
 
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
-  let branch = payload["ref"].str[11 .. -1]
+  let branch = payload["ref"].str # This include refs/origin/
   let commitHash = payload["after"].str
 
-  var cSourcesPrevHEAD = ""
-  if existsDir(nimLoc / "csources"):
-    cSourcesPrevHEAD = readFile(nimLoc / "csources" / ".git" /
-                                "refs" / "heads" / "master")
-    removeDir(nimLoc / "csources") # Remove cloned csources repo.
-
   run(nimLoc, findExe("git"), "checkout", "--", ".")
-  #run(nimLoc, findExe("git"), "clean", "-fxd", "build") # Clean untracked files in build/
-  run(nimLoc, findExe("git"), "checkout", "-f", "master") # Restore to master, so that git pull works.
-  run(nimLoc, findExe("git"), "pull") # General pull.
+  run(nimLoc, findExe("git"), "fetch", "--all")
   run(nimLoc, findExe("git"), "checkout", "-f", branch)
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
-  # Clone C sources repo.
-  run(nimLoc, findExe("git"), "clone", "https://github.com/nimrod-code/csources")
+  # Handle C sources
+  let prevCSourcesHead =
+    if existsFile(nimLoc / "csources" / ".git" / "refs" / "heads" / "master"):
+      readFile(nimLoc / "csources" / ".git" / "refs" / "heads" / "master")
+    else:
+      ""
+  if existsDir(nimLoc / "csources" / ".git") and prevCSourcesHead != "":
+    run(nimLoc / "csources", findExe("git"), "pull", "origin", "master")
+  else:
+    run(nimLoc, findExe("git"), "clone", "https://github.com/nimrod-code/csources")
+  
   let currCSourcesHead = readFile(nimLoc / "csources" / ".git" /
                                   "refs" / "heads" / "master")
-  payload["csources"] = %(not (cSourcesPrevHEAD == currCSourcesHead))
+  # Save whether C sources have changed in the payload so that ``nimBootstrap``
+  # is aware of it.
+  payload["csources"] = %(not (prevCSourcesHead == currCSourcesHead))
 
 proc exe(f: string): string = return addFileExt(f, ExeExt)
 
