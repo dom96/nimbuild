@@ -428,26 +428,25 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 
 proc exe(f: string): string = return addFileExt(f, ExeExt)
 
+proc clean(nimLoc: string) =
+  echo "Cleaning up."
+  proc removePattern(pattern: string) = 
+    for f in walkFiles(pattern):
+      removeFile(f)
+  removePattern(nimLoc / "web/*.html")
+  removePattern(nimLoc / "doc/*.html")
+  removeFile(nimLoc / "testresults.json")
+  removeFile(nimLoc / "testresults.html")
+
 proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   ## Set of steps to bootstrap Nimrod. In debug and release mode.
   ## Does not perform any git actions!
 
-  # Do compile koch here if nimrod binary exists.
-  # This is so that 'koch clean' can be used.
-  # if the nimrod binary does not exist then it's quite unlikely that
-  # koch won't be compiled /and/ we need to run koch clean.
-  if ((not existsFile(nimLoc / "koch".exe)) or 
-      fileInModified(payload, "koch.nim")) and
-      existsFile(nimLoc / "bin" / "nimrod".exe):
-    run(nimLoc, "bin" / "nimrod".exe, "c", "koch.nim")
-
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
   if payload["csources"].bval or 
-       not existsFile("bin" / "nimrod".exe):
-    if existsFile(nimLoc / "koch".exe):
-      run(nimLoc, "koch".exe, "clean")
-    
+       not existsFile(nimLoc / "bin" / "nimrod".exe):
+    clean(nimLoc)
     
     # Unzip C Sources
     when defined(windows):
