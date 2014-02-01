@@ -309,9 +309,16 @@ proc tallyTestResults(path: string):
   var total: biggestInt = 0
   var passed: biggestInt = 0
   var skipped: biggestInt = 0
-  tally3(obj, "reject", total, passed, skipped)
-  tally3(obj, "compile", total, passed, skipped)
-  tally3(obj, "run", total, passed, skipped)
+  if obj.hasKey("reject") and obj.hasKey("compile") and obj.hasKey("run"):
+    tally3(obj, "reject", total, passed, skipped)
+    tally3(obj, "compile", total, passed, skipped)
+    tally3(obj, "run", total, passed, skipped)
+  elif obj.hasKey("total") and obj.hasKey("passed") and obj.hasKey("skipped"):
+    total = obj["total"].num
+    passed = obj["passed"].num
+    skipped = obj["skipped"].num
+  else:
+    raise newException(EBuildEnd, "Invalid testresults.json.")
   
   return (total, passed, skipped, total - (passed + skipped))
 
@@ -712,7 +719,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     state.sock.send($obj & "\c\L")
     # Wait for reply.
     var readSocks = @[state.sock.getSocket]
-    # TODO: Don't use select here. Just sleep(1500). Then readLine.
+    # TODO: Don't use select here. Just use readLine with a timeout.
     if select(readSocks, 1500) == 1:
       var line = ""
       if not state.sock.readLine(line):
