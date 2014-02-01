@@ -419,7 +419,7 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 
   run(nimLoc, findExe("git"), "checkout", "--", ".")
   run(nimLoc, findExe("git"), "fetch", "--all")
-  run(nimLoc, findExe("git"), "checkout", "-f", refs)
+  run(nimLoc, findExe("git"), "checkout", "-f", refs[5 .. -1])
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
