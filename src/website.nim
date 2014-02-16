@@ -300,13 +300,17 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
   elif json.existsKey("result"):
     let result = TResult(json["result"].num)
     let platf = state.platforms[m.platform]
+
+    proc IRCInfo(): string =
+      "[$1 $2 $3]" % [m.platform, platf.hash, platf.branch]
+    
     let currentJob = jobInProgress(platf)
     case currentJob
     of jBuild:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
                                       $int(bSuccess))
-        state.IRCAnnounce(m.platform & ": Build OK.")
+        state.IRCAnnounce(IRCInfo() & "Build OK.")
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
@@ -320,8 +324,8 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         var important = false
         if platf.branch == "master":
           important = true
-        state.IRCAnnounce("Build failed for: " & m.platform & " (" &
-                    json["detail"].str, important)
+        state.IRCAnnounce("$1 Build failed: $2" % 
+            [IRCInfo(), json["detail"].str], important)
     of jTest:
       if result == Success:
         assert(json.existsKey("total"))
@@ -338,8 +342,22 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
             "skipped", $json["skipped"].num)
         state.database.updateProperty(platf.hash, m.platform,
             "failed", $json["failed"].num)
-        state.IRCAnnounce(m.platform & ": Test results: " & $json["passed"].num &
-                    "/" & $json["total"].num)
+        state.IRCAnnounce("$1 Test results: $2/$2." %
+            [IRCInfo(), $json["passed"].num, $json["total"].num])
+
+        # Diff functionality
+        if json.hasKey("diff") and json["diff"].kind == JArray:
+          var message = ""
+          for i in 0 .. <json["diff"].len:
+            if i mod 6 == 0:
+              state.IRCAnnounce("$# $#" %
+                [IRCInfo(), message])
+              message = ""
+            if (i-1) mod 6 == 0: message.add ", "
+            message.add("$1 ($2 -> $3)" %
+                [json["diff"][i]["name"].str, json["diff"][i]["old"].str,
+                 json["diff"][i]["new"].str])
+            
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
@@ -349,23 +367,23 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         var important = false
         if platf.branch == "master":
           important = true
-        state.IRCAnnounce("Testing failed for: " & m.platform & " (" &
-                    json["detail"].str & ")", important)
+        state.IRCAnnounce("$# Testing failed: $#." %
+            [IRCInfo(), json["detail"].str], important)
     of jDocGen:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "docs", "t")
       else:
         state.database.updateProperty(platf.hash, m.platform, "docs", "f")
-        state.IRCAnnounce("Docgen failed.", true)
+        state.IRCAnnounce(IRCInfo() & " Docgen failed.", true)
     of jCSrcGen:
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "csources", "t")
       else:
         state.database.updateProperty(platf.hash, m.platform, "csources", "f")
-        state.IRCAnnounce("C Sources gen failed.", true)
+        state.IRCAnnounce(IRCInfo() & " C Sources gen failed.", true)
     of jInnoSetup:
       if result != Success:
-        state.IRCAnnounce("Inno setup gen failed", true)
+        state.IRCAnnounce(IRCInfo() & " Inno setup gen failed", true)
     if json.existsKey("detail"):
       setResult(state, m.platform, result, json["detail"].str)
     else:

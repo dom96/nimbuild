@@ -233,12 +233,14 @@ proc hubSendBuildSuccess() =
   var obj = %{"result": %(int(Success))}
   sendHubMsg($obj & "\c\L")
 
-proc hubSendBuildTestSuccess(total, passed, skipped, failed: biggestInt) =
+proc hubSendBuildTestSuccess(total, passed, skipped, failed: biggestInt, 
+    diff: PJsonNode) =
   var obj = %{"result": %(int(Success)),
               "total": %(total),
               "passed": %(passed),
               "skipped": %(skipped),
-              "failed": %(failed)}
+              "failed": %(failed),
+              "diff": diff}
   sendHubMsg($obj & "\c\L")
 
 proc hubSendBuildEnd() =
@@ -303,12 +305,13 @@ proc tally3(obj: PJsonNode, name: string,
   skipped = skipped + obj[name]["skipped"].num
 
 proc tallyTestResults(path: string):
-    tuple[total, passed, skipped, failed: biggestInt] =
+    tuple[total, passed, skipped, failed: biggestInt, diff: PJsonNode] =
   var f = readFile(path)
   var obj = parseJson(f)
   var total: biggestInt = 0
   var passed: biggestInt = 0
   var skipped: biggestInt = 0
+  var diff: PJsonNode = newJNull()
   if obj.hasKey("reject") and obj.hasKey("compile") and obj.hasKey("run"):
     tally3(obj, "reject", total, passed, skipped)
     tally3(obj, "compile", total, passed, skipped)
@@ -317,10 +320,12 @@ proc tallyTestResults(path: string):
     total = obj["total"].num
     passed = obj["passed"].num
     skipped = obj["skipped"].num
+    if obj.hasKey("diff"):
+      diff = obj["diff"]
   else:
     raise newException(EBuildEnd, "Invalid testresults.json.")
   
-  return (total, passed, skipped, total - (passed + skipped))
+  return (total, passed, skipped, total - (passed + skipped), diff)
 
 proc fileInModified(json: PJsonNode, file: string): bool =
   if json.hasKey("commits"):
@@ -600,9 +605,9 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
       uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
                  cfg.ftpPass, cfg.ftpUploadDir / "commits", commitPath,
                  testResultsPath, "testresults.html")
-    var (total, passed, skipped, failed) =
+    var (total, passed, skipped, failed, diff) =
         tallyTestResults(cfg.nimLoc / "testresults.json")
-    hubSendBuildTestSuccess(total, passed, skipped, failed)
+    hubSendBuildTestSuccess(total, passed, skipped, failed, diff)
 
     # --- Start of doc gen ---
     # Create the upload directory and the docs directory on the website

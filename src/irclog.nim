@@ -40,7 +40,7 @@ proc newLogger*(logFilepath: string): PLogger =
     result.logFile.writeFlush($$epochTime() & "\n")
 
 proc `$`(s: seq[string]): string =
-  var escaped = map(s) do (x: string) -> string:
+  var escaped = system.map(s) do (x: string) -> string:
     strutils.escape(x)
   result = "[" & join(escaped, ",") & "]"
 
