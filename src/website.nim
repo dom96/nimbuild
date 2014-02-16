@@ -302,7 +302,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
     let platf = state.platforms[m.platform]
 
     proc IRCInfo(): string =
-      "[$1 $2 $3]" % [m.platform, platf.hash, platf.branch]
+      "[$1 $2 $3]" % [m.platform, platf.hash[0..11], platf.branch]
     
     let currentJob = jobInProgress(platf)
     case currentJob
@@ -310,7 +310,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       if result == Success:
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
                                       $int(bSuccess))
-        state.IRCAnnounce(IRCInfo() & "Build OK.")
+        state.IRCAnnounce(IRCInfo() & " Build OK.")
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform, "buildResult",
