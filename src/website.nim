@@ -4,6 +4,7 @@ import
   htmlgen, algorithm, tables
 import types, db, htmlhelp
 from irclog import loadLogger, PLogger
+from httpclient import post
 import irclogrender
 
 import jester
@@ -289,6 +290,21 @@ proc checkBuilderQueue(state: PState, platform: string) =
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
 
+proc createGist(filename, content: string, description = "Nimbuild gist"): string =
+  var body =
+    %{ "description": %description,
+       "public": %false,
+       "files": %{
+         filename: %{
+           "content": %content
+         }
+       }
+     }
+  let resp = httpclient.post("https://api.github.com/gists", body = $body,
+      timeout = 2000)
+  let respJson = resp.body.parseJSON()
+  return respJson["html_url"].str
+
 proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
@@ -342,22 +358,28 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
             "skipped", $json["skipped"].num)
         state.database.updateProperty(platf.hash, m.platform,
             "failed", $json["failed"].num)
-        state.IRCAnnounce("$1 Test results: $2/$2." %
+        state.IRCAnnounce("$1 Test results: $2/$3." %
             [IRCInfo(), $json["passed"].num, $json["total"].num])
 
         # Diff functionality
         if json.hasKey("diff") and json["diff"].kind == JArray:
-          var message = ""
+          var succeedNow = ""
+          var failNow = ""
           for i in 0 .. <json["diff"].len:
-            if i mod 6 == 0:
-              state.IRCAnnounce("$# $#" %
-                [IRCInfo(), message])
-              message = ""
-            if (i-1) mod 6 == 0: message.add ", "
-            message.add("$1 ($2 -> $3)" %
-                [json["diff"][i]["name"].str, json["diff"][i]["old"].str,
-                 json["diff"][i]["new"].str])
-            
+            let msg = "$# *($# -> $#)*\n" % [json["diff"][i]["name"].str,
+                json["diff"][i]["old"].str, json["diff"][i]["new"].str]
+            if json["diff"][i]["new"].str == "reSuccess":
+              succeedNow.add(msg)
+            else:
+              failNow.add(msg)
+          var content = "# Fail now\n\n"
+          content.add(failNow)
+          content.add("\n# Succeed now\n\n")
+          content.add(succeedNow)
+          let gistURL = createGist("testdiff.md", content,
+              "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
+              platf.branch)
+          state.IRCAnnounce("$# Test diff: $#" % [IRCInfo(), gistURL])
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
