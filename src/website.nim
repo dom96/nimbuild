@@ -290,7 +290,8 @@ proc checkBuilderQueue(state: PState, platform: string) =
 # TODO: Instead of using assertions provide a function which checks whether the
 # key exists and throw an exception if it doesn't.
 
-proc createGist(filename, content: string, description = "Nimbuild gist"): string =
+proc createGist(filename, content: string, description = "Nimbuild gist"): string {.raises: [].} =
+  except: return "An error occurred creating gist: " & getCurrentExceptionMsg()
   var body =
     %{ "description": %description,
        "public": %false,
@@ -302,8 +303,11 @@ proc createGist(filename, content: string, description = "Nimbuild gist"): strin
      }
   let resp = httpclient.post("https://api.github.com/gists", body = $body,
       timeout = 2000)
-  let respJson = resp.body.parseJSON()
-  return respJson["html_url"].str
+  if resp.status.startsWith("201"):
+    let respJson = resp.body.parseJSON()
+    return respJson["html_url"].str
+  else:
+    return "Gist creation failed. Got status: " & resp.status
 
 proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
