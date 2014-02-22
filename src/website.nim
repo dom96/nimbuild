@@ -370,7 +370,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
           var succeedNow = ""
           var failNow = ""
           for i in 0 .. <json["diff"].len:
-            let msg = "$# *($# -> $#)*\n" % [json["diff"][i]["name"].str,
+            let msg = "$# *($# -> $#)*\n\n" % [json["diff"][i]["name"].str,
                 json["diff"][i]["old"].str, json["diff"][i]["new"].str]
             if json["diff"][i]["new"].str == "reSuccess":
               succeedNow.add(msg)
