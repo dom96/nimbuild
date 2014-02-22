@@ -8,6 +8,7 @@ type
     sock: PAsyncSocket
     ircClient: PAsyncIRC
     hubPort: TPort
+    ircServerAddr: string
     database: TDb
     dbConnected: bool
     logger: PLogger
@@ -43,11 +44,13 @@ proc getCommandArgs(state: PState) =
   for kind, key, value in getOpt():
     case kind
     of cmdArgument:
-      quit("Syntax: ./ircbot [--hp hubPort] --il irclogsPath")
+      quit("Syntax: ./ircbot [--hp hubPort] [--sa serverAddr] --il irclogsPath")
     of cmdLongOption, cmdShortOption:
       if value == "":
         quit("Syntax: ./ircbot [--hp hubPort] --il irclogsPath")
       case key
+      of "serverAddr", "sa":
+        state.ircServerAddr = value
       of "hubPort", "hp":
         state.hubPort = TPort(parseInt(value))
       of "irclogs", "il":
@@ -457,6 +460,7 @@ proc open(port: TPort = TPort(5123)): PState =
   
   cres.hubPort = port
   cres.irclogsFilename = ""
+  cres.ircServerAddr = ircServer
   cres.getCommandArgs()
   
   if cres.irclogsFilename == "":
@@ -469,8 +473,8 @@ proc open(port: TPort = TPort(5123)): PState =
              handleIrc(irc, event, cres)
   var joinChannels = joinChans
   joinChannels.add(cres.settings.announceChans)
-  cres.ircClient = AsyncIrc(ircServer, nick = botNickname, user = botNickname,
-                 joinChans = joinChannels, ircEvent = ie)
+  cres.ircClient = AsyncIrc(cres.ircServerAddr, nick = botNickname,
+      user = botNickname, joinChans = joinChannels, ircEvent = ie)
   cres.ircClient.connect()
   cres.dispatcher.register(cres.ircClient)
 
