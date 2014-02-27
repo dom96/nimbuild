@@ -602,14 +602,18 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
   var disconnect: seq[TModule] = @[] # Modules which disconnected
   for i in 0..state.modules.len()-1:
     template m: expr = state.modules[i]
-    if m.sock == s:
-      var line = ""
-      var ret = false
+    template onEOSDisconnect(operation: expr): stmt {.immediate.} =
       try:
-        ret = readLine(s, line)
+        operation
       except EOS:
         disconnect.add(m)
         continue
+    
+    if m.sock == s:
+      var line = ""
+      var ret = false
+      onEOSDisconnect:
+        ret = readLine(s, line)
       if ret:
         if line == "":
           disconnect.add(m)
@@ -618,10 +622,12 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
         of MSConnecting:
           var errMsg = ""
           if state.parseGreeting(m, line, errMsg):
-            m.sock.send($(%{ "reply": %"OK" }) & "\c\L")
+            onEOSDisconnect:
+              m.sock.send($(%{ "reply": %"OK" }) & "\c\L")
             echo(uniqueMName(m), " accepted.")
           else:
-            m.sock.send($(%{ "reply": %"FAIL", "reason": %errMsg }) & "\c\L")
+            onEOSDisconnect:
+              m.sock.send($(%{ "reply": %"FAIL", "reason": %errMsg }) & "\c\L")
             echo("Rejected ", uniqueMName(m))
             disconnect.add(m)
         of MSConnected: 
@@ -632,12 +638,14 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
           try:
             state.parseMessage(i, line)
           except:
-            state.modules[i].sock.send($(%{"fatal": %getStackTrace(getCurrentException())}) & "\c\L")
-            state.modules[i].sock.close()
-            echo("Fatal error for ", uniqueMName(state.modules[i]))
+            onEOSDisconnect:
+              m.sock.send($(%{
+                "fatal": %getStackTrace(getCurrentException())}) & "\c\L")
+            m.sock.close()
+            echo("Fatal error for ", uniqueMName(m))
             echo(getStackTrace(getCurrentException()))
             echo("--------------------------")
-            IRCAnnounce(state, uniqueMName(state.modules[i]) & " created a fatal error.", true)
+            IRCAnnounce(state, uniqueMName(m) & " created a fatal error.", true)
             disconnect.add(m)
   
   # Remove disconnected modules
