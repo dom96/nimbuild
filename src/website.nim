@@ -1,7 +1,8 @@
 ## This is the SCGI Website and the hub.
 import 
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
-  htmlgen, algorithm, tables
+  algorithm, tables
+import htmlgen except del
 import types, db, htmlhelp
 from irclog import loadLogger, PLogger
 from httpclient import post
@@ -606,7 +607,7 @@ proc handleModuleMsg(s: PAsyncSocket, arg: PObject) =
       try:
         operation
       except EOS:
-        disconnect.add(m)
+        disconnect.add(m())
         continue
     
     if m.sock == s:
