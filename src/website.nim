@@ -401,9 +401,6 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
               platf.branch)
           state.IRCAnnounce("$# Test diff: $#" % [IRCInfo(), gistURL])
-          state.IRCAnnounce("Still failing tests:")
-          for line in stillFailing.lines:
-            state.IRCAnnounce(line)
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
