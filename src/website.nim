@@ -367,7 +367,6 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
             [IRCInfo(), $json["passed"].num, $json["total"].num])
 
         # Diff functionality
-        var failingNames = newSeq[string]()
         if json.hasKey("diff") and json["diff"].kind == JArray:
           var succeedNow = ""
           var failNow = ""
@@ -381,15 +380,16 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               succeedNow.add(msg)
             else:
               failNow.add(msg)
-              failingNames.add(json["diff"][i]["name"].str)
-          var stillFailing = ""
+          var stillFailing, stillIgnored = ""
           if json.hasKey("results") and json["results"].kind == JArray:
             for i in 0 .. <json["results"].len:
               let testResult = json["results"][i]["result"].str
               let testName = json["results"][i]["name"].str
-              if testResult != "reSuccess" and testName notin failingNames:
-                let msg = "$# *($#)*  \n" % [testName, testResult]
+              let msg = "$# *($#)*  \n" % [testName, testResult]
+              if testResult notin ["reSuccess", "reIgnored"]:
                 stillFailing.add(msg)
+              elif testResult == "reIgnored":
+                stillIgnored.add(msg)
 
           var content = "# Fail now\n\n"
           content.add(failNow)
@@ -397,6 +397,8 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
           content.add(succeedNow)
           content.add("\n# Still Failing\n\n")
           content.add(stillFailing)
+          content.add("\n# Still ignored\n\n")
+          content.add(stillIgnored)
           let gistURL = createGist("testdiff.md", content,
               "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
               platf.branch)
