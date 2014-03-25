@@ -402,7 +402,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
           let gistURL = createGist("testdiff.md", content,
               "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
               platf.branch)
-          state.IRCAnnounce("$# Test diff: $#" % [IRCInfo(), gistURL])
+          state.IRCAnnounce("$# Test diff ($# now fail, $# now succeed): $#" %
+             [IRCInfo(), $failNow.splitLines.len,
+              $succeedNow.splitLines.len, gistURL])
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
