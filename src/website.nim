@@ -369,7 +369,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         # Diff functionality
         if json.hasKey("diff") and json["diff"].kind == JArray:
           var succeedNow = ""
+          var succeedNowCount = 0
           var failNow = ""
+          var failNowCount = 0
           for i in 0 .. <json["diff"].len:
             let msg = "$# *($# -> $#)*\n\n" % [
                 json["diff"][i]["name"].str,
@@ -378,8 +380,10 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               ]
             if json["diff"][i]["new"].str == "reSuccess":
               succeedNow.add(msg)
+              succeedNowCount.inc
             else:
               failNow.add(msg)
+              failNowCount.inc
           var stillFailing, stillIgnored = ""
           if json.hasKey("results") and json["results"].kind == JArray:
             for i in 0 .. <json["results"].len:
@@ -403,8 +407,8 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
               platf.branch)
           state.IRCAnnounce("$# Test diff ($# now fail, $# now succeed): $#" %
-             [IRCInfo(), $failNow.splitLines.len,
-              $succeedNow.splitLines.len, gistURL])
+             [IRCInfo(), $failNowCount,
+              $succeedNowCount, gistURL])
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
