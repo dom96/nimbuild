@@ -101,7 +101,7 @@ proc getHookSubnets(state: PState, timeout = 3000) =
   var extraHeaders =
     if state.apiETag != "": "If-None-Match: \"" & state.apiETag & "\"\c\L"
     else: ""
-  let resp = get("https://api.github.com/meta", extraHeaders = extraHeaders)
+  let resp = httpclient.get("https://api.github.com/meta", extraHeaders)
   state.lastAPIAccess = epochTime()
   if resp.status[0] in {'4', '5'}:
     echo("  [Warning] HookSubnets won't change. Status code was: ", resp.status)
@@ -224,9 +224,15 @@ when isMainModule:
     echo("       ", if authorized: "Authorized." else: "Denied.")
     cond authorized
     let payload = @"payload"
+
+    echo("       Payload:")
+    for line in splitLines(payload):
+      echo("       ", line)
+
     var json = parseJSON(payload)
-    sendBuild(state.sock, json)
-    echo("       ", json["after"].str)
+    if json.hasKey("after"):
+      sendBuild(state.sock, json)
+      echo("       ", json["after"].str)
     resp "Cheers, Github."
   
   while state.dispatcher.poll(-1): nil
