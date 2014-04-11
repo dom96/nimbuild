@@ -1,11 +1,11 @@
 ## This is the SCGI Website and the hub.
 import 
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
-  algorithm, tables
+  algorithm, tables, base64
 import htmlgen except del
 import types, db, htmlhelp
 from irclog import loadLogger, PLogger
-from httpclient import post
+from httpclient import nil
 import irclogrender
 
 import jester
@@ -32,6 +32,7 @@ type
     redisPort: int
     isHttp: bool
     ircLogsPath: string
+    packagesJson: string # List of babel packages from nimrod-code/packages
 
   TModuleStatus = enum
     MSConnecting, ## Module connected, but has not sent the greeting.
@@ -310,6 +311,18 @@ proc createGist(filename, content: string, description = "Nimbuild gist"): strin
   else:
     return "Gist creation failed. Got status: " & resp.status
 
+proc refreshPackagesJson(state: PState) =
+  let resp = httpclient.get("https://raw.githubusercontent.com/nimrod-code/" &
+    "packages/master/packages.json", timeout = 2000)
+  if resp.status.startsWith("200"):
+    try:
+      var test = parseJson(resp.body)
+      state.packagesJson = base64.encode(resp.body)
+    except:
+      echo("Got incorrect packages.json, not saving.")
+  else:
+    echo("Could not retrieve packages.json.")
+
 proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
@@ -530,6 +543,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               
       else:
         echo("Commit already exists. Not rebuilding.")
+    elif "nimrod-code/packages" in
+        json["payload"]["repository"]["url"].str.toLower():
+      state.refreshPackagesJson()
     else:
       echo("Repo is not Nimrod. Got: " & 
             json["payload"]["repository"]["url"].str)
@@ -1153,6 +1169,7 @@ when isMainModule:
   echo("Started website: built at ", CompileDate, " ", CompileTime)
 
   var state = website.open(configPath)
+  state.refreshPackagesJson()
   
   get "/":
     state.req = request
@@ -1181,6 +1198,14 @@ when isMainModule:
       let logsHtml = logsPath.changeFileExt("html")
       cond existsFile(logsHtml)
       resp readFile(logsHtml)
+
+  get "/packages/?":
+    var jsonDoc = %{"content": %state.packagesJson}
+    var text = $jsonDoc
+    if @"callback" != "":
+      text = @"callback" & "(" & text & ")"
+    
+    resp text, "text/javascript"
   
   while True:
     doAssert state.dispatcher.poll()
