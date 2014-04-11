@@ -417,6 +417,9 @@ proc restoreBranchSpecificBin(dir, bin, branch: string) =
   let branchSpecificBin = dir / (bin & "_" & branch).exe
   if existsFile(branchSpecificBin):
     copyFile(branchSpecificBin, dir / bin.exe)
+  elif existsFile(dir / bin.exe):
+    # Delete the current binary to prevent any issues with old binaries.
+    removeFile(dir / bin.exe)
 
 proc backupBranchSpecificBin(dir, bin, branch: string) =
   if existsFile(dir / bin.exe):
