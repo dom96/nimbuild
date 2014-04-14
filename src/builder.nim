@@ -570,7 +570,8 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   ## Runs the tester, returns the full absolute path to where the tests
   ## have been saved.
   result = websiteLoc / "commits" / commitPath / "testresults.html"
-  run(nimLoc, "koch".exe, "tests")
+  run({"PATH": changeNimrodInPATH(nimLoc / "bin")}.newStringTable(),
+      nimLoc, "koch".exe, "tests")
   # Copy the testresults.html file.
   dCreateDir(websiteLoc / "commits" / commitPath)
   setFilePermissions(websiteLoc / "commits" / commitPath,
