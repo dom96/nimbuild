@@ -1,11 +1,11 @@
 ## This is the SCGI Website and the hub.
 import 
   sockets, asyncio, json, strutils, os, scgi, strtabs, times, streams, parsecfg,
-  algorithm, tables
+  algorithm, tables, base64
 import htmlgen except del
 import types, db, htmlhelp
 from irclog import loadLogger, PLogger
-from httpclient import post
+from httpclient import nil
 import irclogrender
 
 import jester
@@ -32,6 +32,7 @@ type
     redisPort: int
     isHttp: bool
     ircLogsPath: string
+    packagesJson: string # List of babel packages from nimrod-code/packages
 
   TModuleStatus = enum
     MSConnecting, ## Module connected, but has not sent the greeting.
@@ -310,6 +311,18 @@ proc createGist(filename, content: string, description = "Nimbuild gist"): strin
   else:
     return "Gist creation failed. Got status: " & resp.status
 
+proc refreshPackagesJson(state: PState) =
+  let resp = httpclient.get("https://raw.githubusercontent.com/nimrod-code/" &
+    "packages/master/packages.json", timeout = 2000)
+  if resp.status.startsWith("200"):
+    try:
+      var test = parseJson(resp.body)
+      state.packagesJson = base64.encode(resp.body)
+    except:
+      echo("Got incorrect packages.json, not saving.")
+  else:
+    echo("Could not retrieve packages.json.")
+
 proc parseMessage(state: PState, mIndex: int, line: string) =
   var json = parseJson(line)
   var m = state.modules[mIndex]
@@ -369,22 +382,46 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         # Diff functionality
         if json.hasKey("diff") and json["diff"].kind == JArray:
           var succeedNow = ""
+          var succeedNowCount = 0
           var failNow = ""
+          var failNowCount = 0
           for i in 0 .. <json["diff"].len:
-            let msg = "$# *($# -> $#)*\n\n" % [json["diff"][i]["name"].str,
-                json["diff"][i]["old"].str, json["diff"][i]["new"].str]
+            let msg = "$# *($# -> $#)*\n\n" % [
+                json["diff"][i]["name"].str,
+                json["diff"][i]["old"].str,
+                json["diff"][i]["new"].str
+              ]
             if json["diff"][i]["new"].str == "reSuccess":
               succeedNow.add(msg)
+              succeedNowCount.inc
             else:
               failNow.add(msg)
+              failNowCount.inc
+          var stillFailing, stillIgnored = ""
+          if json.hasKey("results") and json["results"].kind == JArray:
+            for i in 0 .. <json["results"].len:
+              let testResult = json["results"][i]["result"].str
+              let testName = json["results"][i]["name"].str
+              let msg = "$# *($#)*  \n" % [testName, testResult]
+              if testResult notin ["reSuccess", "reIgnored"]:
+                stillFailing.add(msg)
+              elif testResult == "reIgnored":
+                stillIgnored.add(msg)
+
           var content = "# Fail now\n\n"
           content.add(failNow)
           content.add("\n# Succeed now\n\n")
           content.add(succeedNow)
+          content.add("\n# Still Failing\n\n")
+          content.add(stillFailing)
+          content.add("\n# Still ignored\n\n")
+          content.add(stillIgnored)
           let gistURL = createGist("testdiff.md", content,
               "Nimbuild test diff for " & platf.hash[0 .. 11] & " on branch " &
               platf.branch)
-          state.IRCAnnounce("$# Test diff: $#" % [IRCInfo(), gistURL])
+          state.IRCAnnounce("$# Test diff ($# now fail, $# now succeed): $#" %
+             [IRCInfo(), $failNowCount,
+              $succeedNowCount, gistURL])
       else:
         assert json.existsKey("detail")
         state.database.updateProperty(platf.hash, m.platform,
@@ -506,6 +543,9 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
               
       else:
         echo("Commit already exists. Not rebuilding.")
+    elif "nimrod-code/packages" in
+        json["payload"]["repository"]["url"].str.toLower():
+      state.refreshPackagesJson()
     else:
       echo("Repo is not Nimrod. Got: " & 
             json["payload"]["repository"]["url"].str)
@@ -1129,6 +1169,7 @@ when isMainModule:
   echo("Started website: built at ", CompileDate, " ", CompileTime)
 
   var state = website.open(configPath)
+  state.refreshPackagesJson()
   
   get "/":
     state.req = request
@@ -1157,6 +1198,14 @@ when isMainModule:
       let logsHtml = logsPath.changeFileExt("html")
       cond existsFile(logsHtml)
       resp readFile(logsHtml)
+
+  get "/packages/?":
+    var jsonDoc = %{"content": %state.packagesJson}
+    var text = $jsonDoc
+    if @"callback" != "":
+      text = @"callback" & "(" & text & ")"
+    
+    resp text, "text/javascript"
   
   while True:
     doAssert state.dispatcher.poll()

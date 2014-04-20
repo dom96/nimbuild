@@ -234,13 +234,14 @@ proc hubSendBuildSuccess() =
   sendHubMsg($obj & "\c\L")
 
 proc hubSendBuildTestSuccess(total, passed, skipped, failed: biggestInt, 
-    diff: PJsonNode) =
+    diff, results: PJsonNode) =
   var obj = %{"result": %(int(Success)),
               "total": %(total),
               "passed": %(passed),
               "skipped": %(skipped),
               "failed": %(failed),
-              "diff": diff}
+              "diff": diff,
+              "results": results}
   sendHubMsg($obj & "\c\L")
 
 proc hubSendBuildEnd() =
@@ -305,13 +306,15 @@ proc tally3(obj: PJsonNode, name: string,
   skipped = skipped + obj[name]["skipped"].num
 
 proc tallyTestResults(path: string):
-    tuple[total, passed, skipped, failed: biggestInt, diff: PJsonNode] =
+    tuple[total, passed, skipped, failed: biggestInt, diff, results: PJsonNode] =
+  # TODO: Refactor this monstrosity.
   var f = readFile(path)
   var obj = parseJson(f)
   var total: biggestInt = 0
   var passed: biggestInt = 0
   var skipped: biggestInt = 0
   var diff: PJsonNode = newJNull()
+  var results: PJsonNode = newJNull()
   if obj.hasKey("reject") and obj.hasKey("compile") and obj.hasKey("run"):
     tally3(obj, "reject", total, passed, skipped)
     tally3(obj, "compile", total, passed, skipped)
@@ -322,10 +325,12 @@ proc tallyTestResults(path: string):
     skipped = obj["skipped"].num
     if obj.hasKey("diff"):
       diff = obj["diff"]
+    if obj.hasKey("results"):
+      results = obj["results"]
   else:
     raise newException(EBuildEnd, "Invalid testresults.json.")
   
-  return (total, passed, skipped, total - (passed + skipped), diff)
+  return (total, passed, skipped, total - (passed + skipped), diff, results)
 
 proc fileInModified(json: PJsonNode, file: string): bool =
   if json.hasKey("commits"):
@@ -412,6 +417,9 @@ proc restoreBranchSpecificBin(dir, bin, branch: string) =
   let branchSpecificBin = dir / (bin & "_" & branch).exe
   if existsFile(branchSpecificBin):
     copyFile(branchSpecificBin, dir / bin.exe)
+  elif existsFile(dir / bin.exe):
+    # Delete the current binary to prevent any issues with old binaries.
+    removeFile(dir / bin.exe)
 
 proc backupBranchSpecificBin(dir, bin, branch: string) =
   if existsFile(dir / bin.exe):
@@ -562,7 +570,8 @@ proc nimTest(commitPath, nimLoc, websiteLoc: string): string =
   ## Runs the tester, returns the full absolute path to where the tests
   ## have been saved.
   result = websiteLoc / "commits" / commitPath / "testresults.html"
-  run(nimLoc, "koch".exe, "tests")
+  run({"PATH": changeNimrodInPATH(nimLoc / "bin")}.newStringTable(),
+      nimLoc, "koch".exe, "tests")
   # Copy the testresults.html file.
   dCreateDir(websiteLoc / "commits" / commitPath)
   setFilePermissions(websiteLoc / "commits" / commitPath,
@@ -605,9 +614,9 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
       uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
                  cfg.ftpPass, cfg.ftpUploadDir / "commits", commitPath,
                  testResultsPath, "testresults.html")
-    var (total, passed, skipped, failed, diff) =
+    var (total, passed, skipped, failed, diff, results) =
         tallyTestResults(cfg.nimLoc / "testresults.json")
-    hubSendBuildTestSuccess(total, passed, skipped, failed, diff)
+    hubSendBuildTestSuccess(total, passed, skipped, failed, diff, results)
 
     # --- Start of doc gen ---
     # Create the upload directory and the docs directory on the website
