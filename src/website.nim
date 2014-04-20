@@ -94,7 +94,7 @@ proc parseConfig(state: PState, path: string) =
   else:
     quit("Cannot open configuration file: " & path, quitFailure)
 
-proc handleAccept(s: PAsyncSocket, state: PState)
+proc handleAccept(s: PAsyncSocket, state: PState) {.gcsafe.}
 proc open(configPath: string): PState =
   var cres: PState
   new(cres)
@@ -130,7 +130,7 @@ proc contains(modules: seq[TModule], name: string): bool =
   
   return false
 
-proc handleModuleMsg(s: PAsyncSocket, arg: PObject)
+proc handleModuleMsg(s: PAsyncSocket, arg: PObject) {.gcsafe.}
 proc addModule(state: PState, client: PAsyncSocket, IPAddr: string) =
   var module: TModule
   module.sock = client
