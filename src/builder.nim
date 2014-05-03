@@ -740,8 +740,8 @@ proc parseReply(line: string, expect: string): Bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
-proc hubConnect(state: PState, reconnect: bool)
-proc handleConnect(s: PAsyncSocket, state: PState) =
+proc hubConnect(state: PState, reconnect: bool) {.gcsafe.}
+proc handleConnect(s: PAsyncSocket, state: PState) {.gcsafe.} =
   try:
     # Send greeting
     var obj = newJObject()
@@ -778,11 +778,15 @@ proc handleConnect(s: PAsyncSocket, state: PState) =
     sleep(5000)
     try: hubConnect(state, true) except EOS: echo(getCurrentExceptionMsg()) 
 
-proc handleHubMessage(s: PAsyncSocket, state: PState)
+proc handleHubMessage(s: PAsyncSocket, state: PState) {.gcsafe.}
 proc hubConnect(state: PState, reconnect: bool) =
   state.sock = AsyncSocket()
-  state.sock.handleConnect = proc (s: PAsyncSocket) = handleConnect(s, state)
-  state.sock.handleRead = proc (s: PAsyncSocket) = handleHubMessage(s, state)
+  state.sock.handleConnect =
+    proc (s: PAsyncSocket) {.gcsafe.} =
+      handleConnect(s, state)
+  state.sock.handleRead =
+    proc (s: PAsyncSocket) {.gcsafe.} =
+      handleHubMessage(s, state)
   state.reconnecting = reconnect
   state.sock.connect(state.cfg.hubAddr, TPort(state.cfg.hubPort))
   state.dispatcher.register(state.sock)
