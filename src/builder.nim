@@ -420,7 +420,9 @@ proc restoreBranchSpecificBin(dir, bin, branch: string) =
   elif existsFile(dir / bin.exe):
     # Delete the current binary to prevent any issues with old binaries.
     removeFile(dir / bin.exe)
-
+  # Make sure that the binary has +x permissions.
+  inclFilePermissions(dir / bin.exe, {fpUserExec, fpGroupExec, fpOthersExec})
+  
 proc backupBranchSpecificBin(dir, bin, branch: string) =
   if existsFile(dir / bin.exe):
     copyFile(dir / bin.exe, dir / (bin & "_" & branch).exe)
