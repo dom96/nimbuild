@@ -16,7 +16,7 @@
     #platforms.sort(cmpPlatforms, Descending)
     <div id="header">
       NimBuild - Nimrod's build farm.
-      <input placeholder="Filter Branches" type="search" id="filter" oninput="filter(new RegExp(this));">
+      <input id="filter-branch" oninput="filter(new RegExp(this.value));" placeholder="Filter Branches" type="search"/>
       ${genTopButtons(state.req, state.platforms, entries)}
     </div>
     <div id="content">
