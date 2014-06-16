@@ -14,6 +14,7 @@ type
     logger: PLogger
     irclogsFilename: string
     settings: TSettings
+    birthdayWish: bool ## Did we wish a happy birthday? :)
   
   TSettings = object
     trustedUsers: seq[tuple[nick: string, host: string]]
@@ -482,10 +483,22 @@ proc open(port: TPort = TPort(5123)): PState =
 
   cres.logger = newLogger(cres.irclogsFilename)
   result = cres
-  
+
+proc isBDFLsBirthday(): bool =
+  result = false
+  let t = getTime().getGMTime()
+  if t.month == mJun:
+    if t.monthday == 16 and t.hour >= 22:
+      return true
+    if t.monthday == 17 and t.hour <= 21:
+      return true
+
 var state = ircbot.open() # Connect to the website and the IRC server.
 
 while state.dispatcher.poll():
   if state.dbConnected:
     state.database.keepAlive()
 
+  if isBDFLsBirthday() and not state.birthdayWish:
+    pm("#nimrod", "It's Araq's birthday today! Everybody wish our great BDFL a happy birthday!!!")
+    state.birthdayWish = true
