@@ -320,6 +320,8 @@ proc refreshPackagesJson(state: PState) =
       state.packagesJson = base64.encode(resp.body)
     except:
       echo("Got incorrect packages.json, not saving.")
+      echo(getCurrentExceptionMsg())
+      if state.packagesJson == nil: raise
   else:
     echo("Could not retrieve packages.json.")
 
@@ -1201,6 +1203,7 @@ when isMainModule:
 
   get "/packages/?":
     var jsonDoc = %{"content": %state.packagesJson}
+    cond (jsonDoc != nil)
     var text = $jsonDoc
     if @"callback" != "":
       text = @"callback" & "(" & text & ")"
