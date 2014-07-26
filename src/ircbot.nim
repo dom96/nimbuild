@@ -69,6 +69,9 @@ proc saveSettings(state: PState) =
   store(newFileStream("nimbot.json", fmWrite), state.settings)
 
 proc setSeen(d: TDb, s: TSeen) =
+  if d.r.isNil:
+    echo("[Warning] Redis db nil")
+    return
   discard d.r.del("seen:" & s.nick)
 
   var hashToSet = @[("type", $s.kind.int), ("channel", s.channel),
@@ -83,6 +86,9 @@ proc setSeen(d: TDb, s: TSeen) =
   d.r.hMSet("seen:" & s.nick, hashToSet)
 
 proc getSeen(d: TDb, nick: string, s: var TSeen): bool =
+  if d.r.isNil:
+    echo("[Warning] Redis db nil")
+    return
   if d.r.exists("seen:" & nick):
     result = true
     s.nick = nick
