@@ -93,7 +93,7 @@ proc parseConfig(state: PState, path: string) =
     var p: TCfgParser
     open(p, f, path)
     var count = 0
-    while True:
+    while true:
       var n = next(p)
       case n.kind
       of cfgEof:
@@ -151,13 +151,13 @@ proc parseConfig(state: PState, path: string) =
       of cfgError:
         raise newException(EInvalidValue, "Configuration parse error: " & n.msg)
     if count < 7:
-      quit("Not all settings have been specified in the .ini file", quitFailure)
+      quit("Not all settings have been specified in the .ini file", QuitFailure)
     if state.cfg.ftpUser != "" and state.cfg.ftpPass == "":
       quit("When ftpUser is specified so must the ftpPass.")
 
     close(p)
   else:
-    quit("Cannot open configuration file: " & path, quitFailure)
+    quit("Cannot open configuration file: " & path, QuitFailure)
 
 proc defaultState(): PState =
   new(result)
@@ -233,7 +233,7 @@ proc hubSendBuildSuccess() =
   var obj = %{"result": %(int(Success))}
   sendHubMsg($obj & "\c\L")
 
-proc hubSendBuildTestSuccess(total, passed, skipped, failed: biggestInt, 
+proc hubSendBuildTestSuccess(total, passed, skipped, failed: BiggestInt, 
     diff, results: PJsonNode) =
   var obj = %{"result": %(int(Success)),
               "total": %(total),
@@ -282,9 +282,9 @@ proc dRemoveFile(s: string) =
   echo("[INFO] Removing file ", s)
   removeFile(s)
 
-proc copyForArchive(nimLoc, dest: string) =
+proc copyForArchive(nimLoc, dest, bin: string) =
   dCreateDir(dest / "bin")
-  var nimBin = "bin" / addFileExt("nimrod", ExeExt)
+  var nimBin = "bin" / addFileExt(bin, ExeExt)
   dCopyFile(nimLoc / nimBin, dest / nimBin)
   dCopyFile(nimLoc / "readme.txt", dest / "readme.txt")
   dCopyFile(nimLoc / "copying.txt", dest / "copying.txt")
@@ -300,19 +300,19 @@ proc clearOutgoing(websitePath, platform: string) =
 
 # TODO: Make this a template?
 proc tally3(obj: PJsonNode, name: string,
-            total, passed, skipped: var biggestInt) =
+            total, passed, skipped: var BiggestInt) =
   total = total + obj[name]["total"].num
   passed = passed + obj[name]["passed"].num
   skipped = skipped + obj[name]["skipped"].num
 
 proc tallyTestResults(path: string):
-    tuple[total, passed, skipped, failed: biggestInt, diff, results: PJsonNode] =
+    tuple[total, passed, skipped, failed: BiggestInt, diff, results: PJsonNode] =
   # TODO: Refactor this monstrosity.
   var f = readFile(path)
   var obj = parseJson(f)
-  var total: biggestInt = 0
-  var passed: biggestInt = 0
-  var skipped: biggestInt = 0
+  var total: BiggestInt = 0
+  var passed: BiggestInt = 0
+  var skipped: BiggestInt = 0
   var diff: PJsonNode = newJNull()
   var results: PJsonNode = newJNull()
   if obj.hasKey("reject") and obj.hasKey("compile") and obj.hasKey("run"):
@@ -385,12 +385,13 @@ proc runProcess(env: PStringTable = nil, workDir, execFile: string,
   process.close()
 
 proc changeNimrodInPATH(bindir: string): string =
-  var paths = getEnv("PATH").split(pathSep)
+  var paths = getEnv("PATH").split(PathSep)
   for i in 0 .. <paths.len:
-    let noTrailing = if paths[i][paths[i].len-1] == dirSep: paths[i][0 .. -2] else: paths[i]
-    if cmpPaths(noTrailing, findExe("nimrod").splitFile.dir) == 0:
+    let noTrailing = if paths[i][paths[i].len-1] == DirSep: paths[i][0 .. -2] else: paths[i]
+    if cmpPaths(noTrailing, findExe("nimrod").splitFile.dir) == 0 or
+       cmpPaths(noTrailing, findExe("nim").splitFile.dir) == 0:
       paths[i] = bindir
-  return paths.join($pathSep)
+  return paths.join($PathSep)
 
 proc run(env: PStringTable = nil, workDir: string, exec: string,
          args: varargs[string]) =
@@ -438,8 +439,14 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
   # TODO: Capture changed files from output?
   run(nimLoc, findExe("git"), "checkout", commitHash)
 
+  # Determine the nim binary name. Likely 'nim' now.
+  if existsFile(nimLoc / "compiler" / "nim.nim"):
+    payload["nimBin"] = %"nim"
+  else:
+    payload["nimBin"] = %"nimrod"
+
   # If a branch specific nimrod binary exists. Change to it.
-  restoreBranchSpecificBin(nimLoc / "bin", "nimrod", branch)
+  restoreBranchSpecificBin(nimLoc / "bin", payload["nimBin"].str, branch)
   restoreBranchSpecificBin(nimLoc, "koch", branch)
 
   # Handle C sources
@@ -473,10 +480,12 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   ## Set of steps to bootstrap Nimrod. In debug and release mode.
   ## Does not perform any git actions!
 
+  let nimBin = payload["nimBin"].str
+
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
   if payload["csources"].bval or 
-       not existsFile(nimLoc / "bin" / "nimrod".exe):
+       not existsFile(nimLoc / "bin" / nimBin.exe):
     clean(nimLoc)
     
     # Unzip C Sources
@@ -489,26 +498,26 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
   
   if (not existsFile(nimLoc / "koch".exe)) or 
       fileInModified(payload, "koch.nim"):
-    run(nimLoc, "bin" / "nimrod".exe, "c", "koch.nim")
+    run(nimLoc, "bin" / nimBin.exe, "c", "koch.nim")
     backupBranchSpecificBin(nimLoc, "koch", payload["ref"].str[11 .. -1])
   
   # Bootstrap!
   run(nimLoc, "koch".exe, "boot")
   run(nimLoc, "koch".exe, "boot", "-d:release")
-  backupBranchSpecificBin(nimLoc / "bin", "nimrod", payload["ref"].str[11 .. -1])
+  backupBranchSpecificBin(nimLoc / "bin", nimBin, payload["ref"].str[11 .. -1])
 
 proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
-                   nimLoc, rootZipLoc: string): string =
+                   nimLoc, nimBin, rootZipLoc: string): string =
   ## Zips up the build.
   ## Returns the full absolute path to where the zipped file resides.
   
   # Set +x on nimrod binary
-  setFilePermissions(nimLoc / "bin" / "nimrod".exe, webFP)
+  setFilePermissions(nimLoc / "bin" / nimBin.exe, webFP)
   let zipPath = rootZipLoc / commitPath
   let zipFile = addFileExt(commitPath, "zip")
 
   dCreateDir(zipPath)
-  copyForArchive(nimLoc, zipPath)
+  copyForArchive(nimLoc, zipPath, nimBin)
 
   # Remove the .zip in case it already exists...
   if existsFile(rootZipLoc / zipFile): removeFile(rootZipLoc / zipFile)
@@ -546,7 +555,7 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
     else: assert false
 
   try:
-    var ftpc = AsyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
+    var ftpc = asyncFTPClient(ftpAddr, ftpPort, user, pass, handleEvent)
     echo("Connecting to ftp://" & user & "@" & ftpAddr & ":" & $ftpPort)
     ftpc.connect()
     assert ftpc.pwd().startsWith("/home/" & user) # /home/nimrod
@@ -597,7 +606,7 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
     nimBootstrap(info.payload, cfg.nimLoc, cfg.csourceExtraBuildArgs)
     
     var buildZipFilePath = archiveNimrod(cfg.platform, commitPath, commitHash,
-                                         cfg.websiteLoc, cfg.nimLoc, cfg.zipLoc)
+        cfg.websiteLoc, cfg.nimLoc, info.payload["nimBin"].str, cfg.zipLoc)
     
     # --- Upload zip with build ---
     if cfg.hubAddr != "127.0.0.1":
@@ -736,7 +745,7 @@ proc pollBuild(state: PState) =
         state.building = false
 
 # Communication
-proc parseReply(line: string, expect: string): Bool =
+proc parseReply(line: string, expect: string): bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
@@ -780,7 +789,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) {.gcsafe.} =
 
 proc handleHubMessage(s: PAsyncSocket, state: PState) {.gcsafe.}
 proc hubConnect(state: PState, reconnect: bool) =
-  state.sock = AsyncSocket()
+  state.sock = asyncSocket()
   state.sock.handleConnect =
     proc (s: PAsyncSocket) {.gcsafe.} =
       handleConnect(s, state)
@@ -797,7 +806,7 @@ proc open(configPath: string): PState =
   # Get config
   parseConfig(cres, configPath)
   if not existsDir(cres.cfg.nimLoc):
-    quit(cres.cfg.nimLoc & " does not exist!", quitFailure)
+    quit(cres.cfg.nimLoc & " does not exist!", QuitFailure)
   
   # Init dispatcher
   cres.dispatcher = newDispatcher()
@@ -896,7 +905,7 @@ proc handleHubMessage(s: PAsyncSocket, state: PState) =
         state.parseMessage(line)
       else:
         echo("Disconnected from hub (recvLine returned \"\"): ",
-             OSErrorMsg(OSLastError()))
+             osErrorMsg(osLastError()))
         reconnect(state)
   except EOS:
     echo("Disconnected from hub: ", getCurrentExceptionMsg())
@@ -933,12 +942,12 @@ proc showHelp() =
     -h  --help    Show this help message
     -v  --version Show version  
   """
-  quit(help, quitSuccess)
+  quit(help, QuitSuccess)
 
 proc showVersion() =
   const version = """builder $1 - built on $2
 This software is part of the nimbuild website."""
-  quit(version % [builderVer, compileDate & " " & compileTime], quitSuccess)
+  quit(version % [builderVer, CompileDate & " " & CompileTime], QuitSuccess)
 
 proc parseArgs(): string =
   result = ""
@@ -963,7 +972,7 @@ when isMainModule:
   # TODO: Check for dependencies: unzip, zip, etc...
   var state = builder.open(parseArgs())
   createFolders(state)
-  while True:
+  while true:
     discard state.dispatcher.poll()
     
     state.pollBuild()
