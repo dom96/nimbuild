@@ -69,9 +69,9 @@ proc saveSettings(state: PState) =
   store(newFileStream("nimbot.json", fmWrite), state.settings)
 
 proc setSeen(d: TDb, s: TSeen) =
-  if d.r.isNil:
-    echo("[Warning] Redis db nil")
-    return
+  #if d.r.isNil:
+  #  echo("[Warning] Redis db nil")
+  #  return
   discard d.r.del("seen:" & s.nick)
 
   var hashToSet = @[("type", $s.kind.int), ("channel", s.channel),
@@ -86,9 +86,9 @@ proc setSeen(d: TDb, s: TSeen) =
   d.r.hMSet("seen:" & s.nick, hashToSet)
 
 proc getSeen(d: TDb, nick: string, s: var TSeen): bool =
-  if d.r.isNil:
-    echo("[Warning] Redis db nil")
-    return
+  #if d.r.isNil:
+  #  echo("[Warning] Redis db nil")
+  #  return
   if d.r.exists("seen:" & nick):
     result = true
     s.nick = nick
@@ -295,6 +295,15 @@ proc `$`(s: seq[tuple[nick: string, host: string]]): string =
     result.add(i.nick & "@" & i.host & ", ")
   result = result[0 .. -3]
 
+proc isFilwitBirthday(): bool =
+  result = false
+  let t = getTime().getGMTime()
+  if t.month == mSep:
+    if t.monthday == 10 and t.hour >= 19:
+      return true
+    if t.monthday == 11 and t.hour <= 8:
+      return true
+
 proc handleIrc(irc: PAsyncIRC, event: TIRCEvent, state: PState) =
   case event.typ
   of EvConnected: nil
@@ -436,6 +445,10 @@ proc handleIrc(irc: PAsyncIRC, event: TIRCEvent, state: PState) =
     of MJoin:
       createSeen(PSeenJoin, event.nick, event.origin)
       state.database.setSeen(seenNick)
+      if event.nick == "filwit" and isFilwitBirthday() and (not state.birthdayWish):
+        pmOrig("Happy birthday to you, happy birthday to you! Happy BIRTHDAY " &
+            "dear filwit! happy birthday to you!!!")
+        state.birthdayWish = true
     of MPart:
       createSeen(PSeenPart, event.nick, event.origin)
       let msg = event.params[event.params.high]
