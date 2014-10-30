@@ -395,10 +395,12 @@ proc changeNimrodInPATH(bindir: string): string =
 
 proc run(env: PStringTable = nil, workDir: string, exec: string,
          args: varargs[string]) =
-  echo("! " & exec.extractFilename & " " & join(args, " ") & " started.")
+  echo("! " & exec.extractFilename & " " & join(args, " ") & " started in \"" &
+       workDir & "\".")
   if not runProcess(env, workDir, exec, args):
     raise newException(EBuildEnd,
-        "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed.")
+        "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed in \"" &
+        workDir & "\".")
   
   if threadCommandChan.peek() > 0:
     let thrCmd = threadCommandChan.recv()
@@ -451,17 +453,17 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 
   # Handle C sources
   let prevCSourcesHead =
-    if existsFile(nimLoc / "csources" / ".git" / "refs" / "heads" / "master"):
-      readFile(nimLoc / "csources" / ".git" / "refs" / "heads" / "master")
+    if existsFile(nimLoc / "csources" / ".git" / "refs" / "heads" / branch):
+      readFile(nimLoc / "csources" / ".git" / "refs" / "heads" / branch)
     else:
       ""
-  if existsDir(nimLoc / "csources" / ".git") and prevCSourcesHead != "":
-    run(nimLoc / "csources", findExe("git"), "pull", "origin", "master")
-  else:
-    run(nimLoc, findExe("git"), "clone", "https://github.com/nimrod-code/csources")
+  if existsDir(nimLoc / "csources" / ".git"):
+    removeDir(nimLoc / "csources")
+  run(nimLoc, findExe("git"), "clone", "-b", branch, "--depth", "1",
+      "https://github.com/nimrod-code/csources")
   
   let currCSourcesHead = readFile(nimLoc / "csources" / ".git" /
-                                  "refs" / "heads" / "master")
+                                  "refs" / "heads" / branch)
   # Save whether C sources have changed in the payload so that ``nimBootstrap``
   # is aware of it.
   payload["csources"] = %(not (prevCSourcesHead == currCSourcesHead))
