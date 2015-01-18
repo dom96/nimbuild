@@ -11,6 +11,7 @@ type
     lastPong: float ## Last time a pong was received.
     address: string
     name: string
+    guid: string ## Something to uniquely identify the client.
 
   Hub = ref object
     socket: AsyncSocket
@@ -46,6 +47,12 @@ proc sendError(client: Client, msg: string): Future[void] =
   client.socket.send(genMessage("error", %{"msg": %msg}))
 
 # Hub functions.
+proc sendEvent(event: String, args: JsonNode) {.async.} =
+  ## Sends the event to all clients.
+  for client in self.clients:
+    # TODO: Chec wantEvents
+    await client.socket.send(genMessage(event, args))
+
 proc pingClients(self: Hub) {.async.} =
   var newClients: seq[Client] = @[]
   for client in self.clients:
@@ -122,6 +129,7 @@ proc checkWelcome(self: Hub, socket: AsyncSocket, address: string) {.async.} =
       let c = newClient(socket, address, name)
       self.clients.add(c)
       info($c & " accepted.")
+      self.sendEvent("accepted", welcomeMsg["args"])
 
       if self.clients.len == 1:
         # Restart the processClients loop since we now have at least 1 client.

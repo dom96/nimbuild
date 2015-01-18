@@ -1,4 +1,4 @@
-import asyncdispatch, asyncnet, future, logging, json
+import asyncdispatch, asyncnet, future, logging, json, oids
 
 import messages
 
@@ -11,6 +11,7 @@ type
     onMessage: (Client, JsonNode) -> Future[void]
     address: string
     port: Port
+    guid: string
   Client* = ref ClientObj # TODO: Workaround for compiler crash.
 
 proc newClient*(name: string,
@@ -19,6 +20,9 @@ proc newClient*(name: string,
   result.socket = newAsyncSocket()
   result.name = name
   result.onMessage = onMessage
+
+proc send*(client: Client, event: string, args: JsonNode): Future[void] =
+  client.socket.send(genMessage(event, args))
 
 proc connect*(client: Client, address: string, port = 5123.Port): Future[void]
 
@@ -43,8 +47,10 @@ proc connect*(client: Client, address: string, port = 5123.Port): Future[void] =
     await client.socket.connect(address, port)
     client.address = address
     client.port = port
+    client.guid = $genOid()
 
-    await client.socket.send(genMessage("connected", %{"name": %client.name}))
+    await client.socket.send(genMessage("connected",
+      %{"name": %client.name, "guid": %client.guid}))
 
     info("Connected to hub.")
     while true:
@@ -57,13 +63,12 @@ proc connect*(client: Client, address: string, port = 5123.Port): Future[void] =
 
       let message = parseMessage(line)
       if message.kind == JNull:
-        warn("Invalid message received from Hub: " & line)
+        error("Invalid message received from Hub: " & line)
         continue
 
       var propagate = true
       case message{"event"}.getStr()
       of "ping":
-        echo("Sending")
         await client.socket.send(
           genMessage("pong", %{"time": %message{"args"}{"time"}.getFloat()}))
         propagate = false
