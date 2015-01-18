@@ -1,4 +1,4 @@
-import asyncdispatch, asyncnet, logging
+import asyncdispatch, asyncnet, logging, json
 
 import common/client
 
@@ -10,5 +10,5 @@ when isMainModule:
   var console = newConsoleLogger(fmtStr = verboseFmtStr)
   handlers.add(console)
 
-  var client = newClient("builder", onMessage)
-  client.start("localhost", Port(5123))
+  var builderClient = newClient("builder", onMessage)
+  waitFor builderClient.start("localhost", Port(5123))

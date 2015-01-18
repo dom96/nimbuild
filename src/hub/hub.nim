@@ -62,7 +62,9 @@ proc pingClients(self: Hub) {.async.} =
   self.clients = newClients
 
 proc processClient(self: Hub, client: Client): Future[bool] {.async.} =
+  result = true
   let line = await client.socket.recvLine()
+  info($client & ": " & line)
   if line == "": return false
 
   # Process the received message
@@ -85,12 +87,13 @@ proc processClient(self: Hub, client: Client): Future[bool] {.async.} =
   else: discard
 
   # Propagate the event to all clients.
-  for client in self.clients:
-    # TODO: Check wantEvents.
-    await client.socket.send(line & "\c\l")
+  if propagate:
+    for client in self.clients:
+      # TODO: Check wantEvents.
+      await client.socket.send(line & "\c\l")
 
 proc processClients(self: Hub) {.async.} =
-  while true:
+  while self.clients.len > 0:
     var newClients: seq[Client] = @[]
     for client in self.clients:
       let keepClient = await processClient(self, client)
@@ -119,6 +122,10 @@ proc checkWelcome(self: Hub, socket: AsyncSocket, address: string) {.async.} =
       let c = newClient(socket, address, name)
       self.clients.add(c)
       info($c & " accepted.")
+
+      if self.clients.len == 1:
+        # Restart the processClients loop since we now have at least 1 client.
+        asyncCheck processClients(self)
 
   if not verified:
     warn(address & " rejected.")

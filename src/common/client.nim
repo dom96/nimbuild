@@ -11,7 +11,7 @@ type
     onMessage: (Client, JsonNode) -> Future[void]
     address: string
     port: Port
-  Client = ref ClientObj # TODO: Workaround for compiler crash.
+  Client* = ref ClientObj # TODO: Workaround for compiler crash.
 
 proc newClient*(name: string,
                 onMessage: (Client, JsonNode) -> Future[void]): Client =
@@ -24,40 +24,58 @@ proc connect*(client: Client, address: string, port = 5123.Port): Future[void]
 
 proc reconnect*(client: Client) {.async.} =
   while true:
+    client.socket = newAsyncSocket()
     let connectFut = client.connect(client.address, client.port)
     await connectFut
     if connectFut.failed:
-      error("Couldn't reconnect to hub. Waiting 5 seconds.")
+      client.socket.close()
+      error("Couldn't reconnect to hub: " & connectFut.readError.msg)
+      info("Waiting 5 seconds")
       await sleepAsync(5000)
     else:
       break
 
-proc connect*(client: Client, address: string, port = 5123.Port) {.async.} =
+proc connect*(client: Client, address: string, port = 5123.Port): Future[void] =
   ## Connect once. Won't attempt reconnecting if it can't connect on first
   ## attempt.
-  await client.socket.connect(address, port)
-  client.address = address
-  client.port = port
 
-  await client.socket.send(genMessage("connected", %{"name": %client.name}))
+  proc connectFoo() {.async.} = # TODO: Bug #1970
+    await client.socket.connect(address, port)
+    client.address = address
+    client.port = port
 
-  while true:
-    let line = client.socket.recvLine()
-    if line == "":
-      error("Disconnected from hub.")
-      await reconnect(client)
-      return
+    await client.socket.send(genMessage("connected", %{"name": %client.name}))
 
-    let message = parseMessage(line)
-    if message.kind == JNull:
-      warn("Invalid message received from Hub: " & line)
-      continue
+    info("Connected to hub.")
+    while true:
+      let line = await client.socket.recvLine()
+      if line == "":
+        error("Disconnected from hub.")
+        client.socket.close()
+        await reconnect(client)
+        return
 
-    info(line)
-    asyncCheck client.onMessage(client, message)
+      let message = parseMessage(line)
+      if message.kind == JNull:
+        warn("Invalid message received from Hub: " & line)
+        continue
 
-proc start*(client: Client, address: string, port = 5123.Port) {.async.} =
+      var propagate = true
+      case message{"event"}.getStr()
+      of "ping":
+        echo("Sending")
+        await client.socket.send(
+          genMessage("pong", %{"time": %message{"args"}{"time"}.getFloat()}))
+        propagate = false
+      else: discard
+
+      info("Received: " & line)
+      if propagate:
+        asyncCheck client.onMessage(client, message)
+  return connectFoo()
+
+proc start*(client: Client, address: string, port = 5123.Port): Future[void] =
   ## Starts the attempts for connection.
   client.address = address
   client.port = port
-  reconnect(client)
+  result = reconnect(client)
