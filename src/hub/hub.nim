@@ -47,7 +47,7 @@ proc sendError(client: Client, msg: string): Future[void] =
   client.socket.send(genMessage("error", %{"msg": %msg}))
 
 # Hub functions.
-proc sendEvent(event: String, args: JsonNode) {.async.} =
+proc sendEvent(self: Hub, event: string, args: JsonNode) {.async.} =
   ## Sends the event to all clients.
   for client in self.clients:
     # TODO: Chec wantEvents
@@ -129,7 +129,7 @@ proc checkWelcome(self: Hub, socket: AsyncSocket, address: string) {.async.} =
       let c = newClient(socket, address, name)
       self.clients.add(c)
       info($c & " accepted.")
-      self.sendEvent("accepted", welcomeMsg["args"])
+      await self.sendEvent("accepted", welcomeMsg["args"])
 
       if self.clients.len == 1:
         # Restart the processClients loop since we now have at least 1 client.
