@@ -32,12 +32,12 @@ type
     hubAddr: string
     hubPort: int
     hubPass: string
-    
+
     ftpUser: string
     ftpPass: string
     ftpPort: TPort
     ftpUploadDir: string
-  
+
     requestNewest: bool
     deleteOutgoing: bool
 
@@ -53,12 +53,12 @@ type
     pinged: float
     reconnecting: bool
     buildThread: TThread[int] # TODO: Change to void when bug is fixed.
-  
+
   PState = ref TState
 
   TBuildProgressType = enum
     ProcessStart, ProcessExit, HubMsg, BuildEnd
-  
+
   TBuildProgress = object ## This object gets sent to the main thread, by the builder thread.
     case kind: TBuildProgressType
     of ProcessStart:
@@ -233,7 +233,7 @@ proc hubSendBuildSuccess() =
   var obj = %{"result": %(int(Success))}
   sendHubMsg($obj & "\c\L")
 
-proc hubSendBuildTestSuccess(total, passed, skipped, failed: BiggestInt, 
+proc hubSendBuildTestSuccess(total, passed, skipped, failed: BiggestInt,
     diff, results: PJsonNode) =
   var obj = %{"result": %(int(Success)),
               "total": %(total),
@@ -329,7 +329,7 @@ proc tallyTestResults(path: string):
       results = obj["results"]
   else:
     raise newException(EBuildEnd, "Invalid testresults.json.")
-  
+
   return (total, passed, skipped, total - (passed + skipped), diff, results)
 
 proc fileInModified(json: PJsonNode, file: string): bool =
@@ -380,14 +380,14 @@ proc runProcess(env: PStringTable = nil, workDir, execFile: string,
       hubSendProcessLine(line)
     if hasProcessTerminated(process, exitCode):
       break
-  result = exitCode == QuitSuccess 
+  result = exitCode == QuitSuccess
   echo("! " & execFile.extractFilename & " " & join(args, " ") & " exited with ", exitCode)
   process.close()
 
 proc changeNimrodInPATH(bindir: string): string =
   var paths = getEnv("PATH").split(PathSep)
   for i in 0 .. <paths.len:
-    let noTrailing = if paths[i][paths[i].len-1] == DirSep: paths[i][0 .. -2] else: paths[i]
+    let noTrailing = if paths[i][paths[i].len-1] == DirSep: paths[i][0 .. ^2] else: paths[i]
     if cmpPaths(noTrailing, findExe("nimrod").splitFile.dir) == 0 or
        cmpPaths(noTrailing, findExe("nim").splitFile.dir) == 0:
       paths[i] = bindir
@@ -401,7 +401,7 @@ proc run(env: PStringTable = nil, workDir: string, exec: string,
     raise newException(EBuildEnd,
         "\"" & exec.extractFilename & " " & join(args, " ") & "\" failed in \"" &
         workDir & "\".")
-  
+
   if threadCommandChan.peek() > 0:
     let thrCmd = threadCommandChan.recv()
     case thrCmd.kind:
@@ -425,14 +425,14 @@ proc restoreBranchSpecificBin(dir, bin, branch: string) =
   elif existsFile(dir / bin.exe):
     # Delete the current binary to prevent any issues with old binaries.
     removeFile(dir / bin.exe)
-  
+
 proc backupBranchSpecificBin(dir, bin, branch: string) =
   if existsFile(dir / bin.exe):
     copyFile(dir / bin.exe, dir / (bin & "_" & branch).exe)
 
 proc setGIT(payload: PJsonNode, nimLoc: string) =
   ## Cleans working tree, changes branch and pulls.
-  let branch = payload["ref"].str[11 .. -1]
+  let branch = payload["ref"].str[11 .. ^1]
   let commitHash = payload["after"].str
 
   run(nimLoc, findExe("git"), "checkout", "--", ".")
@@ -461,7 +461,7 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
     removeDir(nimLoc / "csources")
   run(nimLoc, findExe("git"), "clone", "-b", branch, "--depth", "1",
       "https://github.com/nimrod-code/csources")
-  
+
   let currCSourcesHead = readFile(nimLoc / "csources" / ".git" /
                                   "refs" / "heads" / branch)
   # Save whether C sources have changed in the payload so that ``nimBootstrap``
@@ -470,7 +470,7 @@ proc setGIT(payload: PJsonNode, nimLoc: string) =
 
 proc clean(nimLoc: string) =
   echo "Cleaning up."
-  proc removePattern(pattern: string) = 
+  proc removePattern(pattern: string) =
     for f in walkFiles(pattern):
       removeFile(f)
   removePattern(nimLoc / "web/*.html")
@@ -486,10 +486,10 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
 
   # skipCSource is already set to true if 'csources.zip' changed.
   # force running of ./build.sh if the nimrod binary is nonexistent.
-  if payload["csources"].bval or 
+  if payload["csources"].bval or
        not existsFile(nimLoc / "bin" / nimBin.exe):
     clean(nimLoc)
-    
+
     # Unzip C Sources
     when defined(windows):
       # build.bat
@@ -497,22 +497,22 @@ proc nimBootstrap(payload: PJsonNode, nimLoc, csourceExtraBuildArgs: string) =
     else:
       # ./build.sh
       run(nimLoc / "csources", findExe("sh"), "build.sh", csourceExtraBuildArgs)
-  
-  if (not existsFile(nimLoc / "koch".exe)) or 
+
+  if (not existsFile(nimLoc / "koch".exe)) or
       fileInModified(payload, "koch.nim"):
     run(nimLoc, "bin" / nimBin.exe, "c", "koch.nim")
-    backupBranchSpecificBin(nimLoc, "koch", payload["ref"].str[11 .. -1])
-  
+    backupBranchSpecificBin(nimLoc, "koch", payload["ref"].str[11 .. ^1])
+
   # Bootstrap!
   run(nimLoc, "koch".exe, "boot")
   run(nimLoc, "koch".exe, "boot", "-d:release")
-  backupBranchSpecificBin(nimLoc / "bin", nimBin, payload["ref"].str[11 .. -1])
+  backupBranchSpecificBin(nimLoc / "bin", nimBin, payload["ref"].str[11 .. ^1])
 
 proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
                    nimLoc, nimBin, rootZipLoc: string): string =
   ## Zips up the build.
   ## Returns the full absolute path to where the zipped file resides.
-  
+
   # Set +x on nimrod binary
   setFilePermissions(nimLoc / "bin" / nimBin.exe, webFP)
   let zipPath = rootZipLoc / commitPath
@@ -541,12 +541,12 @@ proc archiveNimrod(platform, commitPath, commitHash, websiteLoc,
     dMoveFile(rootZipLoc / zipFile, websiteLoc / "commits" / zipFinalPath)
   # Remove the original .zip file
   dRemoveFile(rootZipLoc / zipFile)
-  
+
   result = websiteLoc / "commits" / zipFinalPath
 
 proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
                 uploadDir, file, destFile: string) =
-  
+
   proc handleEvent(f: PAsyncFTPClient, ev: TFTPEvent) =
     case ev.typ
     of EvStore:
@@ -566,7 +566,7 @@ proc uploadFile(ftpAddr: string, ftpPort: TPort, user, pass, workDir,
     echo("FTP: Creating " & uploadDir)
     try: ftpc.createDir(uploadDir, true)
     except EInvalidReply: nil # TODO: Check properly whether the folder exists
-    
+
     ftpc.chmod(uploadDir, webFP)
     ftpc.cd(uploadDir)
     echo("FTP: Work dir is " & ftpc.pwd())
@@ -596,23 +596,23 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
   buildTmpl(info):
     let cfg = info.cfg
     let commitHash = info.payload["after"].str
-    let commitBranch = info.payload["ref"].str[11 .. -1]
+    let commitBranch = info.payload["ref"].str[11 .. ^1]
     let commitPath = makeCommitPath(cfg.platform, commitHash)
     hubSendBuildStart(commitHash, commitBranch)
     hubSendJobUpdate(jBuild)
-    
+
     # GIT
     setGIT(info.payload, cfg.nimLoc)
-    
+
     # Bootstrap
     nimBootstrap(info.payload, cfg.nimLoc, cfg.csourceExtraBuildArgs)
-    
+
     var buildZipFilePath = archiveNimrod(cfg.platform, commitPath, commitHash,
         cfg.websiteLoc, cfg.nimLoc, info.payload["nimBin"].str, cfg.zipLoc)
-    
+
     # --- Upload zip with build ---
     if cfg.hubAddr != "127.0.0.1":
-      uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser, 
+      uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
                  cfg.ftpPass,
                  cfg.ftpUploadDir / "commits", cfg.platform, # TODO: Make sure user doesn't add the "commits" in the config.
                  buildZipFilePath,
@@ -621,7 +621,7 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
     hubSendBuildSuccess()
     hubSendJobUpdate(jTest)
     var testResultsPath = nimTest(commitPath, cfg.nimLoc, cfg.websiteLoc)
-    
+
     # --- Upload testresults.html ---
     if cfg.hubAddr != "127.0.0.1":
       uploadFile(cfg.hubAddr, cfg.ftpPort, cfg.ftpUser,
@@ -641,7 +641,7 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
           cfg.nimLoc, "koch", "web")
       # Copy all the docs to the website.
       dCopyDir(cfg.nimLoc / "web" / "upload", cfg.websiteLoc / "docs")
-      
+
       hubSendBuildSuccess()
     if cfg.innoSetupGen:
       # We want docs to be generated for inno setup, so that the setup file
@@ -687,7 +687,7 @@ proc bootstrapTmpl(dummy: int) {.thread.} =
       # -- Move the .zip file
       dMoveFile(cfg.zipLoc / csourcesZipFile,
                 cfg.websiteLoc / "commits" / csourcesZipFile)
-      
+
       hubSendBuildSuccess()
 
     # --- Start of inno setup gen ---
@@ -709,7 +709,7 @@ proc stopBuild(state: PState) =
   if state.building:
     # Send the termination command first.
     threadCommandChan.send(TThreadCommand(kind: BuildTerminate))
-    
+
     # Simply terminate the currently running process, should hopefully work.
     if state.buildJob.p != nil:
       echo("Terminating build")
@@ -717,7 +717,7 @@ proc stopBuild(state: PState) =
 
 proc beginBuild(state: PState) =
   ## This procedure starts the process of building nimrod.
-  
+
   # First make sure to stop any currently running process.
   state.stopBuild()
 
@@ -769,8 +769,8 @@ proc handleConnect(s: PAsyncSocket, state: PState) {.gcsafe.} =
       if not state.sock.readLine(line):
         raise newException(EInvalidValue, "recvLine failed.")
       if not parseReply(line, "OK"):
-        raise newException(EInvalidValue, "Incorrect welcome message from hub") 
-      
+        raise newException(EInvalidValue, "Incorrect welcome message from hub")
+
       echo("The hub accepted me!")
 
       if state.cfg.requestNewest and not state.reconnecting:
@@ -787,7 +787,7 @@ proc handleConnect(s: PAsyncSocket, state: PState) {.gcsafe.} =
     s.close()
     echo("Waiting 5 seconds...")
     sleep(5000)
-    try: hubConnect(state, true) except EOS: echo(getCurrentExceptionMsg()) 
+    try: hubConnect(state, true) except EOS: echo(getCurrentExceptionMsg())
 
 proc handleHubMessage(s: PAsyncSocket, state: PState) {.gcsafe.}
 proc hubConnect(state: PState, reconnect: bool) =
@@ -809,10 +809,10 @@ proc open(configPath: string): PState =
   parseConfig(cres, configPath)
   if not existsDir(cres.cfg.nimLoc):
     quit(cres.cfg.nimLoc & " does not exist!", QuitFailure)
-  
+
   # Init dispatcher
   cres.dispatcher = newDispatcher()
-  
+
   # Connect to the hub
   try: cres.hubConnect(false)
   except EOS:
@@ -821,7 +821,7 @@ proc open(configPath: string): PState =
 
   # Open log file
   cres.logFile = open(cres.cfg.logLoc, fmAppend)
-  
+
   # Init job
   cres.buildJob = initJob()
 
@@ -868,7 +868,7 @@ proc parseMessage(state: PState, line: string) =
     json.delete("ping")
     state.sock.send($json & "\c\L")
     echo("Replying to Ping")
-  
+
   elif json.hasKey("pong"):
     # Website replied. Connection is still alive.
     state.pinged = -1.0
@@ -929,7 +929,7 @@ proc checkTimeout(state: PState) =
           echo("Disconnected from server due to: ", getCurrentExceptionMsg())
           reconnect(state)
           return
-          
+
         state.pinged = epochTime()
 
     else:
@@ -942,7 +942,7 @@ proc checkTimeout(state: PState) =
 proc showHelp() =
   const help = """Usage: builder [options] configFile
     -h  --help    Show this help message
-    -v  --version Show version  
+    -v  --version Show version
   """
   quit(help, QuitSuccess)
 
@@ -976,9 +976,9 @@ when isMainModule:
   createFolders(state)
   while true:
     discard state.dispatcher.poll()
-    
+
     state.pollBuild()
-  
+
     state.checkTimeout()
-  
+
 
