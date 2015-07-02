@@ -14,7 +14,7 @@ type
     tUnknown, tFail, tSuccess
 
   TEntry* = tuple[c: TCommit, p: seq[TPlatform]]
-  
+
   TCommit* = object
     commitMsg*, username*, hash*, branch*: string
     date*: TTime
@@ -24,13 +24,13 @@ type
     buildResult*: TBuildResult
     testResult*: TTestResult
     failReason*, platform*: string
-    total*, passed*, skipped*, failed*: biggestInt
+    total*, passed*, skipped*, failed*: BiggestInt
     csources*: bool
     docs*: bool
 
 const
   listName = "commits"
-  failOnExisting = False
+  failOnExisting = false
 
 proc open*(host = "localhost", port: TPort): TDb =
   result.r = redis.open(host, port)
@@ -119,9 +119,9 @@ proc getCommits*(database: TDb,
         else:
           echo("[redis] platf key not found: " & normalize(key))
           assert(false)
-      
+
       platform.platform = p
-      
+
       platforms.add(platform)
       if p notin plStr:
         plStr.add(p)
@@ -172,9 +172,9 @@ proc `[]`*(p: seq[TPlatform], name: string): TPlatform =
     if platform.platform == name:
       return platform
   raise newException(EInvalidValue, name & " platforms not found in commits.")
-  
+
 proc contains*(p: seq[TPlatform], s: string): bool =
   for i in items(p):
     if i.platform == s:
-      return True
+      return true
 
