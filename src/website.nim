@@ -5,6 +5,9 @@ import
 import htmlgen except del
 import types, db, htmlhelp
 from httpclient import nil
+from net import nil
+
+import asyncdispatch except newDispatcher, Port
 
 import jester
 
@@ -747,7 +750,7 @@ proc isBuilding(platforms: TTable[string, TStatus], p: string, c: TCommit): bool
 
 proc genPlatformResult(state: PState, c: TCommit, p: TPlatform,
                        platforms: TTable[string, TStatus],
-                       req: TRequest): string =
+                       req: Request): string =
   result = ""
   case p.buildResult
   of bUnknown:
@@ -866,7 +869,7 @@ proc findLatestCommit(entries: seq[TEntry],
 
       i.inc()
 
-proc genDownloadTable(req: TRequest, entries: seq[TEntry],
+proc genDownloadTable(req: Request, entries: seq[TEntry],
                       platforms: seq[string]): string =
   result = ""
 
@@ -940,7 +943,7 @@ proc genDownloadTable(req: TRequest, entries: seq[TEntry],
 
   result = table.toHtml("id=\"downloads\"")
 
-proc genTopButtons(req: TRequest, platforms: TTable[string, TStatus],
+proc genTopButtons(req: Request, platforms: TTable[string, TStatus],
                    entries: seq[TEntry]): string =
   # Generate buttons for C sources and docs.
   # Find the latest C sources.
@@ -1146,8 +1149,6 @@ proc cleanup(state: PState) =
     # TODO: Send something to the modules to warn them?
     m.sock.close()
 
-  jester.close()
-
 proc handleAccept(s: PAsyncSocket, state: PState) =
   # Connection from a module
   var client: PAsyncSocket; new(client)
@@ -1166,7 +1167,7 @@ when isMainModule:
   echo("Started website: built at ", CompileDate, " ", CompileTime)
 
   var state = website.open(configPath)
-  var settings = newSettings(port = state.scgiPort.Port)
+  var settings = newSettings(port = net.Port(state.scgiPort))
 
   routes:
     get "/":
@@ -1177,7 +1178,7 @@ when isMainModule:
   while true:
     doAssert state.dispatcher.poll()
 
-    asyncdispatcher.poll()
+    asyncdispatch.poll()
 
     state.handlePings()
 
