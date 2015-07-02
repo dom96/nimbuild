@@ -1,10 +1,16 @@
-import strtabs, sockets, asyncio, scgi, strutils, os, json,
+import strtabs, sockets, scgi, strutils, os, json,
   osproc, streams, times, parseopt, parseutils
-  
+
 from cgi import URLDecode
 from httpclient import get # httpclient.post conflicts with jester.post
+from net import nil
+
+import asyncio
+import asyncdispatch except Port, newDispatcher
+
 import jester
 import types
+
 
 type
   TSubnet = object
@@ -19,7 +25,7 @@ type
     platform: string
 
     hubPort: TPort
-    scgiPort: TPort
+    scgiPort: net.Port
 
     timeReconnected: float
 
@@ -43,7 +49,7 @@ proc getCommandArgs(state: PState) =
       of "hubPort", "hp":
         state.hubPort = TPort(parseInt(value))
       of "scgiPort", "sp":
-        state.scgiPort = TPort(parseInt(value))
+        state.scgiPort = net.Port(parseInt(value))
       else: quit("Syntax: ./github -hp hubPort -sp scgiPort")
     of cmdEnd: assert false
 
@@ -56,7 +62,7 @@ proc invalidSubnet(msg: string = "Invalid subnet") =
 
 proc parseSubnet(subnet: string): TSubnet =
   var i = 0
-  
+
   template parsePart(letter: expr, dot: bool) =
     var j = parseInt(subnet, letter, i)
     if j <= 0: invalidSubnet()
@@ -94,10 +100,10 @@ proc contains(subnet: TSubnet, ip: string): bool =
 proc getHookSubnets(state: PState, timeout = 3000) =
   ## Gets the allowed IP addresses using Github's API.
   except: echo("  [Warning] Getting hookSubnets failed: ", getCurrentExceptionMsg())
-  
+
   if epochTime() - state.lastAPIAccess < 5.0:
     return
-  
+
   var extraHeaders =
     if state.apiETag != "": "If-None-Match: \"" & state.apiETag & "\"\c\L"
     else: ""
@@ -109,16 +115,16 @@ proc getHookSubnets(state: PState, timeout = 3000) =
   elif resp.status[0 .. 2] == "304":
     # Nothing changed.
     return
-  
+
   let j = parseJSON(resp.body)
   if j.existsKey("hooks"):
     for ip in j["hooks"]: state.subnets.add(parseSubnet(ip.str))
 
   state.apiETag = resp.headers["ETag"]
-  
+
 # Communication
 
-proc parseReply(line: string, expect: string): Bool =
+proc parseReply(line: string, expect: string): bool =
   var jsonDoc = parseJson(line)
   return jsonDoc["reply"].str == expect
 
@@ -158,35 +164,35 @@ proc handleModuleMessage(s: PAsyncSocket, state: PState) =
     state.handleMessage(line)
   else:
     state.sock.close()
-    echo("Disconnected from hub: ", OSErrorMsg())
+    echo("Disconnected from hub: ", osErrorMsg())
     echo("Reconnecting...")
     state.hubConnect()
 
 proc hubConnect(state: PState) =
-  state.sock = AsyncSocket()
+  state.sock = asyncSocket()
   state.sock.connect("127.0.0.1", state.hubPort)
-  state.sock.handleConnect = proc (s: PAsyncSocket) = handleConnect(s, state)
-  state.sock.handleRead = proc (s: PAsyncSocket) = handleModuleMessage(s, state)
+  state.sock.handleConnect =
+    proc (s: PAsyncSocket) {.gcsafe.} = handleConnect(s, state)
+  state.sock.handleRead =
+    proc (s: PAsyncSocket) {.gcsafe.} = handleModuleMessage(s, state)
   state.dispatcher.register(state.sock)
-  
+
   state.platform = "linux-x86"
   state.timeReconnected = -1.0
 
-proc open(port: TPort = TPort(5123), scgiPort: TPort = TPort(5000)): PState =
+proc open(port: TPort = TPort(5123),
+          scgiPort: net.Port = net.Port(5000)): PState =
   new(result)
-  
+
   result.dispatcher = newDispatcher()
-  
+
   result.hubPort = port
   result.scgiPort = scgiPort
   result.subnets = @[]
-  
+
   result.getCommandArgs()
 
   result.hubConnect()
-  
-  # jester
-  result.dispatcher.register(port = result.scgiPort, http = false)
 
   result.apiETag = ""
   getHookSubnets(result, timeout = -1) # Get initial set of subnets
@@ -211,29 +217,33 @@ proc isAuthorized(state: PState, ip: string): bool =
 
 when isMainModule:
   var state = open()
-  
-  post "/":
-    echo("[POST] ", request.ip)
-    var hostname = ""
-    try:
-      hostname = getHostByAddr(request.ip).name
-    except:
-      hostname = getCurrentExceptionMsg()
-    echo("       ", hostname)
-    let authorized = state.isAuthorized(request.ip)
-    echo("       ", if authorized: "Authorized." else: "Denied.")
-    cond authorized
-    let payload = @"payload"
 
-    echo("       Payload:")
-    for line in splitLines(payload):
-      echo("       ", line)
+  settings:
+    port = state.scgiPort
 
-    var json = parseJSON(payload)
-    if json.hasKey("after"):
-      sendBuild(state.sock, json)
-      echo("       ", json["after"].str)
-    resp "Cheers, Github."
-  
-  while state.dispatcher.poll(-1): nil
+  routes:
+    post "/":
+      echo("[POST] ", request.ip)
+      var hostname = ""
+      try:
+        hostname = getHostByAddr(request.ip).name
+      except:
+        hostname = getCurrentExceptionMsg()
+      echo("       ", hostname)
+      let authorized = state.isAuthorized(request.ip)
+      echo("       ", if authorized: "Authorized." else: "Denied.")
+      cond authorized
+      let payload = @"payload"
+
+      echo("       Payload:")
+      for line in splitLines(payload):
+        echo("       ", line)
+
+      var json = parseJSON(payload)
+      if json.hasKey("after"):
+        sendBuild(state.sock, json)
+        echo("       ", json["after"].str)
+      resp "Cheers, Github."
+
+  runForever()
 
