@@ -118,7 +118,13 @@ proc loop(self: Hub) {.async.} =
 
 proc checkWelcome(self: Hub, socket: AsyncSocket, address: string) {.async.} =
   info(address & " connected.")
-  let welcomeMsg = parseMessage(await socket.recvLine())
+  let line = await socket.recvLine()
+  if line == "":
+    socket.close()
+    info(address & " disconnected before sending welcome message")
+    return
+
+  let welcomeMsg = parseMessage(line)
 
   var verified = false
   if welcomeMsg.kind == JObject and welcomeMsg{"event"}.getStr() == "connected":
@@ -163,7 +169,7 @@ proc newHub(): Hub =
 when isMainModule:
   # Set up logging.
   var console = newConsoleLogger(fmtStr = verboseFmtStr)
-  handlers.add(console)
+  addHandler(console)
 
   var h = newHub()
   waitFor serve(h)

@@ -11,7 +11,7 @@ type
   AsyncExecutor* = ref object
     thread: TThread[void]
 
-  ProgressCB* = proc (message: ProcessEvent): Future[void]
+  ProgressCB* = proc (message: ProcessEvent): Future[void] {.closure, gcsafe.}
 
   ThreadCommandKind = enum
     StartProcess, KillProcess

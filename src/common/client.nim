@@ -2,29 +2,29 @@ import asyncdispatch, asyncnet, future, logging, json, oids
 
 import messages
 
-## Abstracts communicates with the Hub away.
+## Abstracts communication with the Hub away.
 
 type
   ClientObj = object
     socket: AsyncSocket
     name: string
-    onMessage: (Client, JsonNode) -> Future[void]
     address: string
     port: Port
     guid: string
   Client* = ref ClientObj # TODO: Workaround for compiler crash.
 
-proc newClient*(name: string,
-                onMessage: (Client, JsonNode) -> Future[void]): Client =
+  ClientMessage* = JsonNode
+
+proc newClient*(name: string): Client =
   new result
   result.socket = newAsyncSocket()
   result.name = name
-  result.onMessage = onMessage
 
 proc send*(client: Client, event: string, args: JsonNode): Future[void] =
   client.socket.send(genMessage(event, args))
 
-proc connect*(client: Client, address: string, port = 5123.Port): Future[void]
+proc connect*(client: Client, address: string,
+              port = 5123.Port): Future[void] {.gcsafe.}
 
 proc reconnect*(client: Client) {.async.} =
   while true:
@@ -32,6 +32,7 @@ proc reconnect*(client: Client) {.async.} =
     let connectFut = client.connect(client.address, client.port)
     await connectFut
     if connectFut.failed:
+      connectFut.read()
       client.socket.close()
       error("Couldn't reconnect to hub: " & connectFut.readError.msg)
       info("Waiting 5 seconds")
@@ -53,34 +54,54 @@ proc connect*(client: Client, address: string, port = 5123.Port): Future[void] =
       %{"name": %client.name, "guid": %client.guid}))
 
     info("Connected to hub.")
-    while true:
-      let line = await client.socket.recvLine()
-      if line == "":
-        error("Disconnected from hub.")
-        client.socket.close()
-        await reconnect(client)
-        return
 
-      let message = parseMessage(line)
-      if message.kind == JNull:
-        error("Invalid message received from Hub: " & line)
-        continue
-
-      var propagate = true
-      case message{"event"}.getStr()
-      of "ping":
-        await client.socket.send(
-          genMessage("pong", %{"time": %message{"args"}{"time"}.getFloat()}))
-        propagate = false
-      else: discard
-
-      info("Received: " & line)
-      if propagate:
-        asyncCheck client.onMessage(client, message)
   return connectFoo()
+
+proc next*(client: Client): Future[ClientMessage] {.async.} =
+  ## Reads the next message.
+
+  # Loop until a message worthy of being reported is received.
+  while true:
+    let line = await client.socket.recvLine()
+    if line == "":
+      error("Disconnected from hub.")
+      client.socket.close()
+      await reconnect(client)
+      continue
+
+    let message = parseMessage(line)
+    if message.kind == JNull:
+      error("Invalid message received from Hub: " & line)
+      continue
+
+    var propagate = true
+    case message{"event"}.getStr()
+    of "ping":
+      await client.socket.send(
+        genMessage("pong", %{"time": %message{"args"}{"time"}.getFloat()}))
+      propagate = false
+    else: discard
+
+    info("Received: " & line)
+    if propagate:
+      result = message
+      break
 
 proc start*(client: Client, address: string, port = 5123.Port): Future[void] =
   ## Starts the attempts for connection.
   client.address = address
   client.port = port
   result = reconnect(client)
+
+when isMainModule:
+  var console = newConsoleLogger(fmtStr = verboseFmtStr)
+  addHandler(console)
+
+  proc main() {.async.} =
+    var c = newClient("test")
+    await c.start("localhost")
+
+    while true:
+      let msg = await c.next()
+      echo msg
+  waitFor main()
