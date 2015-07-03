@@ -41,10 +41,10 @@ proc getCommandArgs(state: PState) =
   for kind, key, value in getOpt():
     case kind
     of cmdArgument:
-      quit("Syntax: ./github -hp hubPort -sp scgiPort")
+      quit("Syntax: ./github --hp:hubPort --sp:scgiPort")
     of cmdLongOption, cmdShortOption:
       if value == "":
-        quit("Syntax: ./github -hp hubPort -sp scgiPort")
+        quit("Syntax: ./github --hp:hubPort --sp:scgiPort")
       case key
       of "hubPort", "hp":
         state.hubPort = TPort(parseInt(value))
@@ -180,8 +180,8 @@ proc hubConnect(state: PState) =
   state.platform = "linux-x86"
   state.timeReconnected = -1.0
 
-proc open(port: TPort = TPort(5123),
-          scgiPort: net.Port = net.Port(5000)): PState =
+proc open(port: TPort = TPort(9321),
+          scgiPort: net.Port = net.Port(9323)): PState =
   new(result)
 
   result.dispatcher = newDispatcher()
@@ -223,14 +223,19 @@ when isMainModule:
 
   routes:
     post "/":
-      echo("[POST] ", request.ip)
+      let realIP =
+        if request.ip == "127.0.0.1":
+          request.headers["X-Real-IP"]
+        else:
+          request.ip
+      echo("[POST] ", realIP)
       var hostname = ""
       try:
-        hostname = getHostByAddr(request.ip).name
+        hostname = getHostByAddr(realIP).name
       except:
         hostname = getCurrentExceptionMsg()
       echo("       ", hostname)
-      let authorized = state.isAuthorized(request.ip)
+      let authorized = state.isAuthorized(realIP)
       echo("       ", if authorized: "Authorized." else: "Denied.")
       cond authorized
       let payload = @"payload"
