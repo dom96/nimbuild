@@ -497,8 +497,8 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
 
   elif json.existsKey("payload"):
     # { "payload": { .. } }
-    # Check if this is the Nimrod repo.
-    if "araq/nimrod" in json["payload"]["repository"]["url"].str.toLower():
+    # Check if this is the Nim repo.
+    if "nim-lang/nim" in json["payload"]["repository"]["url"].str.toLower():
       # Check if the commit exists.
       if not state.database.commitExists(json["payload"]["after"].str):
         # Get the branch.
@@ -547,7 +547,7 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
         json["payload"]["repository"]["url"].str.toLower():
       state.refreshPackagesJson()
     else:
-      echo("Repo is not Nimrod. Got: " &
+      echo("Repo is not Nim. Got: " &
             json["payload"]["repository"]["url"].str)
 
     # Send this message to the "irc" module.
