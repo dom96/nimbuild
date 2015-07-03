@@ -250,5 +250,7 @@ when isMainModule:
         echo("       ", json["after"].str)
       resp "Cheers, Github."
 
-  runForever()
+  while true:
+    asyncdispatch.poll()
+    discard state.dispatcher.poll()
 
