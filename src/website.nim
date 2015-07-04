@@ -22,6 +22,7 @@ type
     dispatcher: PDispatcher
     sock: PAsyncSocket ## Hub server socket. All modules connect to this.
     req: Request
+    jesterSettings: jester.Settings
     modules: seq[TModule]
     database: TDb
     platforms: TTable[string, TStatus]
@@ -485,13 +486,13 @@ proc parseMessage(state: PState, mIndex: int, line: string) =
       let commitBranch = json["branch"].str
       state.platforms.mget(m.platform).hash = commitHash
       state.platforms.mget(m.platform).branch = commitBranch
-      let commitPath = state.req.settings.staticDir / "commits" /
+      let commitPath = state.jesterSettings.staticDir / "commits" /
                        makeCommitPath(m.platform, commitHash)
       if not existsDir(commitPath.parentDir):
         createDir(commitPath.parentDir)
       if not existsDir(commitPath):
         createDir(commitPath)
-      let logFilepath = state.req.settings.staticDir / "commits" /
+      let logFilepath = state.jesterSettings.staticDir / "commits" /
                         makeCommitPath(m.platform, commitHash) / "logs.txt"
       state.modules[mIndex].logFile = open(logFilepath, fmWrite)
 
@@ -1168,6 +1169,7 @@ when isMainModule:
 
   var state = website.open(configPath)
   var settings = newSettings(port = net.Port(state.scgiPort))
+  state.jesterSettings = settings
 
   routes:
     get "/":
@@ -1176,9 +1178,9 @@ when isMainModule:
       resp html
 
   while true:
-    doAssert state.dispatcher.poll()
+    doAssert state.dispatcher.poll(1)
 
-    asyncdispatch.poll()
+    asyncdispatch.poll(1)
 
     state.handlePings()
 
