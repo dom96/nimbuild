@@ -1139,6 +1139,8 @@ proc genBuildResults(state: PState, platforms: seq[string], entr: seq[TEntry]): 
       result.add(htmlgen.`div`(style="float: left; width: 100%;", platfsCol))
       platfsCount = 0
       platfsCol = ""
+  # Add the rest of the rows.
+  result.add(htmlgen.`div`(style="float: left; width: 100%;", platfsCol))
 
 
 include "index.html"
