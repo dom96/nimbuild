@@ -969,10 +969,19 @@ proc createFolders(state: PState) =
   if not existsDir(state.cfg.websiteLoc / "commits" / state.cfg.platform):
     dCreateDir(state.cfg.websiteLoc / "commits" / state.cfg.platform)
 
+proc checkDepends() =
+  when defined(windows):
+    if findExe("7za") == "":
+      quit("Could not find 7za for archiving.")
+  else:
+    if findExe("zip") == "":
+      quit("Could not find zip for archiving.")
+
 when isMainModule:
   echo("Started builder: built at ", CompileDate, " ", CompileTime)
-  # TODO: Check for dependencies: unzip, zip, etc...
+
   var state = builder.open(parseArgs())
+  checkDepends()
   createFolders(state)
   while true:
     discard state.dispatcher.poll()
