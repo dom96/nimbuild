@@ -1,16 +1,16 @@
 # Nimbuild
 
-This is the Nimrod build farm. It is separated into multiple components; main one being
+This is the Nim build farm. It is separated into multiple components; main one being
 the website (website.nim); which acts as a ``hub`` for all the other components
 - they all connect to it. It also acts as the front end and is available at
-http://build.nimrod-code.org/. 
+http://build.nim-lang.org/. 
 
 The other components:
 
 ### Github.nim
 This component waits for connections from github, it acts as a POST receive hook.
 It waits for a POST request from github containing a payload informing it
-of the file commited to the Nimrod repo, it then sends this information on
+of the file commited to the Nim repo, it then sends this information on
 to the website.
 
 ### Builder.nim
@@ -21,7 +21,7 @@ the test suite. It also does some other tasks which are optional, like generatin
 c sources and the documentation.
 
 ### ircbot.nim
-This component is an IRC bot which idles in the #nimrod channel on freenode, it
+This component is an IRC bot which idles in the #nim channel on freenode, it
 has some features already. It's main purpose is to announce a commit in the
 channel, but it also has a !seen command. More features are planned for later.
 
