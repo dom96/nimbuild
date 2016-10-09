@@ -7,6 +7,7 @@
   <title>NimBuild</title>
 	<link rel="stylesheet" href="${state.req.makeUri("css/boilerplate.css", absolute = false)}">
 	<link rel="stylesheet" href="${state.req.makeUri("css/style.css", absolute = false)}">
+	<script src="${state.req.makeUri("scripts/main.js", absolute = false)}"/>
 </head>
 <body>
   <div id="wrapper">
@@ -15,6 +16,7 @@
     #platforms.sort(cmpPlatforms, Descending)
     <div id="header">
       NimBuild - Nimrod's build farm.
+      <input id="filter-branch" oninput="filter(new RegExp(this.value));" placeholder="Filter Branches" type="search"/>
       ${genTopButtons(state.req, state.platforms, entries)}
     </div>
     <div id="content">

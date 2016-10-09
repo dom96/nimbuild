@@ -198,6 +198,17 @@ div#header a.button {
   margin-top: 5px;
 }
 
+#filter-branch {
+  font-size: small;
+  vertical-align: middle;
+  float: right;
+  border-radius: 2px;
+  border: medium none;
+  margin-top: 6px;
+  padding: 5px;
+  margin-left: 2em;
+}
+
 div#footer {
   background-color: #5D5D5D;
   background: -moz-linear-gradient(top, #5D5D5D, #4D4D4D);
